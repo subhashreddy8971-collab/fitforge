@@ -580,7 +580,7 @@ async function geminiGenerate(contents, opts){
   if(!res.ok){
     let m=`HTTP ${res.status}`;
     try{ const j=await res.json(); if(j.error&&j.error.message) m=j.error.message; }catch(e){}
-    if(res.status===400 && /API key not valid/i.test(m)) m='API key not valid — check AI ⚙️ Settings';
+    if(res.status===400 && /API key not valid/i.test(m)) m='API key not valid — check AI Settings';
     if(res.status===429) m='Rate limit reached — wait a moment';
     throw new Error(m);
   }
@@ -637,10 +637,10 @@ async function addFoodAI(){
   const inp=document.getElementById('food-input');
   const t=(inp&&inp.value||'').trim();
   if(!t) return;
-  if(!geminiActive()){ aiToast('Add your Gemini key in AI → ⚙️ to use AI food logging','warn'); return; }
+  if(!geminiActive()){ aiToast('Add your Gemini key in AI Settings to use AI food logging','warn'); return; }
   const btn=document.getElementById('food-ai-btn');
-  if(btn){ btn.disabled=true; btn.textContent='…'; }
-  aiToast('✨ Reading your food…','ok');
+  if(btn){ btn.disabled=true; btn.innerHTML='…'; }
+  aiToast('Reading your food…','ok');
   try{
     const items=await geminiParseFoods(t);
     const today=TODAY();
@@ -649,9 +649,9 @@ async function addFoodAI(){
     items.forEach(it=>day.foods.push({ id:uid(), name:String(it.name||'food'), meal:selMeal,
       cal:Math.round(+it.cal||0), p:+(+it.p||0).toFixed(1), c:+(+it.c||0).toFixed(1), f:+(+it.f||0).toFixed(1), fi:+(+it.fi||0).toFixed(1) }));
     save(); if(inp) inp.value=''; renderNutrition();
-    aiToast(`✨ Added ${items.length} item${items.length>1?'s':''} to ${selMeal}`,'ok');
+    aiToast(`Added ${items.length} item${items.length>1?'s':''} to ${selMeal}`,'ok');
   }catch(e){
-    if(btn){ btn.disabled=false; btn.textContent='✨'; }
+    if(btn){ btn.disabled=false; btn.innerHTML=IC('sparkle',18); }
     aiToast('AI parse failed: '+e.message,'err');
   }
 }
@@ -671,19 +671,19 @@ async function geminiIdentifyExercise(b64,mime){
   return JSON.parse(out);
 }
 function startPhotoExercise(){
-  if(!geminiActive()){ aiToast('Add your Gemini key in AI → ⚙️ to identify by photo','warn'); return; }
+  if(!geminiActive()){ aiToast('Add your Gemini key in AI Settings to identify by photo','warn'); return; }
   const inp=document.getElementById('ex-photo-input');
   if(inp) inp.click();
 }
 async function onExercisePhoto(input){
   const file=input.files&&input.files[0]; input.value='';
   if(!file) return;
-  aiToast('🔍 Identifying equipment…','ok');
+  aiToast('Identifying equipment…','ok');
   try{
     const img=await fileToB64Resized(file,768);
     const r=await geminiIdentifyExercise(img.b64,img.mime);
     const muscle=['Chest','Back','Legs','Shoulders','Arms','Core'].includes(r.muscle)?r.muscle:'Chest';
-    const ok=confirm(`📷 Detected: ${r.exercise}\nMuscle group: ${muscle}${r.note?'\n\n💡 '+r.note:''}\n\nAdd this to your workout? You can then log your reps & weight.`);
+    const ok=confirm(`Detected: ${r.exercise}\nMuscle group: ${muscle}${r.note?'\n\n💡 '+r.note:''}\n\nAdd this to your workout? You can then log your reps & weight.`);
     if(ok){
       if(!STATE.activeWorkout) startWorkout();
       addExercise(r.exercise,muscle);
@@ -704,7 +704,7 @@ function openAISettings(){
     <div class="modal-sheet" onclick="event.stopPropagation()">
       <div class="modal-handle"></div>
       <div class="row between mb-md">
-        <div style="font-size:18px;font-weight:800">🤖 AI Coach Settings</div>
+        <div style="font-size:18px;font-weight:800">${IC('sparkle',18,'var(--accent)')} AI Coach Settings</div>
         <button class="btn-ghost" onclick="closeAISettings()" style="font-size:20px">✕</button>
       </div>
 
@@ -730,7 +730,7 @@ function openAISettings(){
       <div class="section-label">Gemini API Key</div>
       <div class="row" style="gap:6px;margin-bottom:6px">
         <input id="ai-key" type="password" placeholder="${k?masked:'Paste your key (AIza…)'}" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" style="flex:1">
-        <button class="btn btn-secondary btn-sm" onclick="toggleKeyVisibility()" id="ai-key-eye" style="flex-shrink:0">👁</button>
+        <button class="btn btn-secondary btn-sm" onclick="toggleKeyVisibility()" id="ai-key-eye" style="flex-shrink:0">Show</button>
       </div>
       <div class="fs-11 text-muted mb-md">
         Get a free key at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener" style="color:var(--accent)">aistudio.google.com/apikey</a>. Stored only on this device — never uploaded or exported.
@@ -759,7 +759,9 @@ function onAIToggle(){
 }
 function toggleKeyVisibility(){
   const inp=document.getElementById('ai-key');
-  inp.type = inp.type==='password' ? 'text' : 'password';
+  const show = inp.type==='password';
+  inp.type = show ? 'text' : 'password';
+  const b=document.getElementById('ai-key-eye'); if(b) b.textContent = show ? 'Hide' : 'Show';
 }
 function setAIStatus(msg,color){ const el=document.getElementById('ai-status'); if(el){ el.style.color=color||'var(--muted)'; el.innerHTML=msg; } }
 function readAIForm(){
@@ -889,7 +891,23 @@ function IC(name,s,c){
     bolt:'<path d="M13 3 5 13h5l-1 8 8-10h-5z"/>',
     calendar:'<rect x="4" y="5" width="16" height="16" rx="2"/><path d="M4 9h16M8 3v4M16 3v4"/>',
     bulb:'<path d="M9 18h6M10 21h4M12 3a6 6 0 0 1 4 10.5c-.6.6-1 1.2-1 2H9c0-.8-.4-1.4-1-2A6 6 0 0 1 12 3z"/>',
-    alert:'<path d="M12 4 2.5 20h19z"/><path d="M12 10v4M12 17h.01"/>'
+    alert:'<path d="M12 4 2.5 20h19z"/><path d="M12 10v4M12 17h.01"/>',
+    dumbbell:'<path d="M2 12h2M20 12h2M7 12h10"/><rect x="4" y="8.5" width="3" height="7" rx="1"/><rect x="17" y="8.5" width="3" height="7" rx="1"/>',
+    camera:'<path d="M3 8a2 2 0 0 1 2-2h2l1.2-2h5.6L17 6h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><circle cx="12" cy="12.5" r="3.2"/>',
+    note:'<path d="M5 4h11l3 3v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"/><path d="M15 4v4h4M8 13h8M8 17h5"/>',
+    trophy:'<path d="M7 4h10v4a5 5 0 0 1-10 0z"/><path d="M7 6H4v2a3 3 0 0 0 3 3M17 6h3v2a3 3 0 0 1-3 3M9 18h6M10 21h4M12 13v5"/>',
+    moon:'<path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/>',
+    run:'<circle cx="15" cy="5" r="2"/><path d="M5 21l3-5 4-1 1-5 3 3 3 1M9 12l-1-4 5-2 3 4"/>',
+    chart:'<path d="M3 3v17a1 1 0 0 0 1 1h17"/><path d="M7 14l3.5-4 3 2.5L21 6"/>',
+    body:'<circle cx="12" cy="5" r="2.2"/><path d="M12 8v7M12 11l-4 2M12 11l4 2M9 21l3-6 3 6"/>',
+    watch:'<rect x="7" y="7" width="10" height="10" rx="2.5"/><path d="M9 7l.5-3h5l.5 3M9 17l.5 3h5l.5-3"/>',
+    gear:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/>',
+    sparkle:'<path d="M12 3l1.7 4.8L18.5 9.5l-4.8 1.7L12 16l-1.7-4.8L5.5 9.5l4.8-1.7z"/>',
+    table:'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M3 14h18M9 4v16M15 4v16"/>',
+    code:'<path d="M9 8l-4 4 4 4M15 8l4 4-4 4"/>',
+    target:'<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="0.6"/>',
+    check:'<circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.5 2.5L16 9.5"/>',
+    download:'<path d="M12 3v12M7 11l5 5 5-5M5 21h14"/>'
   };
   return `<svg viewBox="0 0 24 24" style="${st};vertical-align:middle" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${P[name]||''}</svg>`;
 }
@@ -911,7 +929,7 @@ function renderHome() {
   const todayWktHtml=todayWkt?`
   <div class="card accent-border">
     <div class="row between mb-sm">
-      <span class="card-title">🏋️ Today's session</span>
+      <span class="card-title">${IC('dumbbell',14)} Today's session</span>
       ${badge('Done ✓','#00C896')}
     </div>
     ${todayWkt.exercises.map(ex=>`
@@ -920,7 +938,7 @@ function renderHome() {
         <div class="fs-11 text-muted">${ex.sets.map((s,i)=>`${s.w}×${s.r}`).join('  ·  ')}</div>
       </div>`).join('')}
     <div style="border-top:1px solid var(--border);padding-top:8px;margin-top:4px">
-      <span class="fs-11 text-muted">📦 ${todayWkt.vol}kg &nbsp;·&nbsp; ⏱ ${todayWkt.duration} min</span>
+      <span class="fs-11 text-muted">${IC('layers',13)} ${todayWkt.vol}kg &nbsp;·&nbsp; ${todayWkt.duration} min</span>
     </div>
   </div>` : '';
 
@@ -1038,7 +1056,7 @@ function renderHome() {
           <span class="mc-unit">g</span>
         </div>
       </div>
-      ${totals.cal>s.calorieTarget*0.92?'<div class="fs-11 text-yellow">💡 Near limit — a 20-min walk burns ~80 kcal</div>':''}
+      ${totals.cal>s.calorieTarget*0.92?'<div class="fs-11 text-yellow">Near limit — a 20-min walk burns ~80 kcal</div>':''}
     </div>
   </div>`;
 }
@@ -1060,7 +1078,7 @@ function renderWorkout() {
     </div>
     <!-- Muscle freq -->
     <div class="card" style="margin-bottom:12px">
-      <div class="section-label">💪 Muscle Frequency (14 days)</div>
+      <div class="section-label">Muscle Frequency (14 days)</div>
       <div class="muscle-grid">
         ${Object.entries(freq).map(([m,v])=>{
           const c=v===0?'var(--red)':v<2?'var(--yellow)':'var(--green)';
@@ -1073,7 +1091,7 @@ function renderWorkout() {
     </div>
     <!-- Start CTA -->
     <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px 16px;text-align:center">
-      <div style="font-size:64px;margin-bottom:16px">🏋️</div>
+      <div style="color:var(--accent);margin-bottom:16px">${IC('dumbbell',56,'var(--accent)')}</div>
       <div style="font-size:20px;font-weight:800;margin-bottom:8px">Ready to train?</div>
       <div class="text-muted" style="margin-bottom:28px;line-height:1.6">Log exercises, sets, reps, and rest timers. Data saved as Markdown files.</div>
       <button class="btn btn-primary" style="width:100%;font-size:15px;padding:16px" onclick="startWorkout()">▶  Start Workout</button>
@@ -1115,7 +1133,7 @@ function renderWorkoutHistory() {
             <div class="row between"><span class="fw-700 fs-13">${ex.name}</span><span class="fs-11 text-orange">PR: ${getPR(ex.name)}kg</span></div>
             <div class="fs-11 text-muted">${ex.sets.map((s,i)=>`${i+1}: ${s.w}×${s.r}`).join('  ·  ')}</div>
           </div>`).join('')}
-          ${w.notes?`<div class="fs-11 text-muted" style="font-style:italic">💬 ${w.notes}</div>`:''}
+          ${w.notes?`<div class="fs-11 text-muted row" style="font-style:italic;gap:6px;align-items:center"><span style="color:var(--dim);flex-shrink:0">${IC('note',12,'var(--dim)')}</span>${w.notes}</div>`:''}
         </div>`:''}
       </div>`;
     }).join('')}
@@ -1322,7 +1340,7 @@ function renderActiveWorkout() {
       <div class="modal-handle"></div>
       <div style="font-size:18px;font-weight:800;margin-bottom:12px">Add Exercise</div>
       <input id="ex-photo-input" type="file" accept="image/*" capture="environment" style="display:none" onchange="onExercisePhoto(this)">
-      <button class="btn" style="width:100%;margin-bottom:6px;border:1px dashed var(--accent);background:var(--accent-lo);color:var(--accent);font-weight:700" onclick="startPhotoExercise()">📷 Identify equipment by photo (AI)</button>
+      <button class="btn" style="width:100%;margin-bottom:6px;border:1px dashed var(--accent);background:var(--accent-lo);color:var(--accent);font-weight:700" onclick="startPhotoExercise()">${IC('camera',16)} Identify equipment by photo</button>
       <div class="fs-11 text-dim" style="margin-bottom:12px;text-align:center">Don't know the machine's name? Snap it — AI names the exercise.</div>
       <input id="custom-ex-input" placeholder="Or type a custom exercise name..." style="margin-bottom:12px" onkeydown="if(event.key==='Enter'){const v=this.value.trim();if(v)addExercise(v,selMuscle);}">
       <div style="overflow-x:auto;margin-bottom:12px">
@@ -1401,7 +1419,7 @@ function renderNutritionHTML(){
   const isOver=totals.cal>targets.cal;
   const remaining=targets.cal-totals.cal;
 
-  const tabs=['log','history','gi'].map(t=>`<button onclick="nutSubTab='${t}';renderNutrition()" style="flex:1;padding:10px;background:none;border:none;border-bottom:2px solid ${nutSubTab===t?'var(--accent)':'transparent'};color:${nutSubTab===t?'var(--accent)':'var(--muted)'};font-size:12px;font-weight:700;cursor:pointer;text-transform:uppercase">${t==='gi'?'GI Table':t==='log'?'📋 Today':'📅 History'}</button>`).join('');
+  const tabs=['log','history','gi'].map(t=>`<button onclick="nutSubTab='${t}';renderNutrition()" style="flex:1;padding:10px;background:none;border:none;border-bottom:2px solid ${nutSubTab===t?'var(--accent)':'transparent'};color:${nutSubTab===t?'var(--accent)':'var(--muted)'};font-size:12px;font-weight:700;cursor:pointer;text-transform:uppercase">${t==='gi'?'GI Table':t==='log'?'Today':'History'}</button>`).join('');
 
   let content='';
 
@@ -1437,14 +1455,14 @@ function renderNutritionHTML(){
       <div class="section-label">NATURAL LANGUAGE ENTRY</div>
       <div class="row" style="gap:8px;margin-bottom:6px">
         <input id="food-input" placeholder="2 rotis with dal & a glass of milk..." style="flex:1">
-        <button class="btn btn-secondary" id="food-ai-btn" title="AI parse (any food / sentences)" style="padding:10px 14px;font-size:18px;border-radius:10px;flex-shrink:0;border:1px solid var(--accent);color:var(--accent)" onclick="addFoodAI()">✨</button>
+        <button class="btn btn-secondary" id="food-ai-btn" title="AI parse (any food / sentences)" style="padding:10px 14px;font-size:18px;border-radius:10px;flex-shrink:0;border:1px solid var(--accent);color:var(--accent)" onclick="addFoodAI()">${IC('sparkle',18)}</button>
         <button class="btn btn-primary" style="padding:10px 16px;font-size:18px;border-radius:10px;flex-shrink:0" title="Quick match from built-in foods" onclick="addFood()">+</button>
       </div>
-      <div class="fs-11 text-dim" style="margin-bottom:10px">✨ AI = understands any food or full sentence · + = instant match from the built-in list</div>
+      <div class="fs-11 text-dim" style="margin-bottom:10px">Spark = AI-parse any food or full sentence · + = instant match from the built-in list</div>
       <!-- Meal selector -->
       <div style="overflow-x:auto;margin-bottom:10px">
         <div class="row" style="gap:5px;flex-wrap:nowrap">
-          ${MEALS.map(m=>`<button onclick="selMeal='${m}';renderNutrition()" style="padding:5px 12px;border-radius:50px;border:1px solid ${selMeal===m?'var(--accent)':'var(--border)'};background:${selMeal===m?'var(--accent-lo)':'var(--surface)'};color:${selMeal===m?'var(--accent)':'var(--muted)'};font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap">${MEAL_EMOJI[m]} ${m}</button>`).join('')}
+          ${MEALS.map(m=>`<button onclick="selMeal='${m}';renderNutrition()" style="padding:5px 12px;border-radius:50px;border:1px solid ${selMeal===m?'var(--accent)':'var(--border)'};background:${selMeal===m?'var(--accent-lo)':'var(--surface)'};color:${selMeal===m?'var(--accent)':'var(--muted)'};font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap">${m}</button>`).join('')}
         </div>
       </div>
       <!-- Quick foods -->
@@ -1460,7 +1478,7 @@ function renderNutritionHTML(){
       const mealCal=foods.reduce((a,f)=>a+f.cal,0);
       return `<div class="card" style="margin-bottom:8px">
         <div class="row between mb-sm">
-          <span class="fw-700">${MEAL_EMOJI[meal]} ${meal}</span>
+          <span class="fw-700">${meal}</span>
           <span class="fs-11 text-muted">${Math.round(mealCal)} kcal</span>
         </div>
         ${foods.map(f=>`<div class="food-item">
@@ -1476,7 +1494,7 @@ function renderNutritionHTML(){
         </div>`).join('')}
       </div>`;
     }).join('')}
-    ${!todayLog?.foods?.length?`<div style="text-align:center;padding:32px;color:var(--muted)"><div style="font-size:48px;margin-bottom:12px">🥗</div><div class="fw-700 fs-13">Nothing logged yet</div><div class="fs-12 text-muted mt-sm">Type "4 eggs" or "200g chicken" above</div></div>`:''}`;
+    ${!todayLog?.foods?.length?`<div style="text-align:center;padding:32px;color:var(--muted)"><div style="color:var(--dim);margin-bottom:12px;display:flex;justify-content:center">${IC('note',40,'var(--dim)')}</div><div class="fw-700 fs-13">Nothing logged yet</div><div class="fs-12 text-muted mt-sm">Type "4 eggs" or "200g chicken" above</div></div>`:''}`;
   }
 
   else if(nutSubTab==='history'){
@@ -1562,7 +1580,7 @@ function renderProgress(){
   const volBars=Object.entries(muscleVol).sort(([,a],[,b])=>b-a).map(([m,v])=>({label:m.slice(0,3),v,color:({Chest:'#6C63FF',Back:'#22D3EE',Legs:'#00C896',Shoulders:'#FFD166',Arms:'#FF7A2F',Core:'#C084FC'})[m]||'var(--accent)'}));
   const sessionBars=[...STATE.workouts].slice(-8).map(w=>({label:w.date.slice(5),v:w.vol,color:'var(--accent)CC'}));
 
-  const tabLabels={weight:'⚖️ Body',strength:'💪 Strength',volume:'📦 Volume',watch:'⌚ Watch'};
+  const tabLabels={weight:'Body',strength:'Strength',volume:'Volume',watch:'Watch'};
   const tabs=['weight','strength','volume','watch'].map(t=>`<button onclick="progressTab='${t}';renderTab()" style="flex:1;padding:10px 4px;background:none;border:none;border-bottom:2px solid ${progressTab===t?'var(--accent)':'transparent'};color:${progressTab===t?'var(--accent)':'var(--muted)'};font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase">${tabLabels[t]}</button>`).join('');
 
   let content='';
@@ -1591,12 +1609,12 @@ function renderProgress(){
   }
   else if(progressTab==='strength'){
     content=`
-    <div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:8px;letter-spacing:.8px">PERSONAL RECORDS 🏆</div>
+    <div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:8px;letter-spacing:.8px">${IC('trophy',13)} PERSONAL RECORDS</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
       ${PRs.map(p=>`<div class="card" style="text-align:center;padding:12px">
         <div class="fs-11 text-muted" style="margin-bottom:4px">${p.n}</div>
         <div style="font-size:22px;font-weight:900;color:${p.c}">${p.pr?p.pr+'kg':'—'}</div>
-        ${p.pr?'<div style="font-size:14px;margin-top:2px">🏅</div>':''}
+        
       </div>`).join('')}
     </div>
     ${[{l:'Bench Press',d:benchD,c:'var(--accent)'},{l:'Back Squat',d:squatD,c:'var(--green)'},{l:'Deadlift',d:dlD,c:'var(--orange)'},{l:'Overhead Press',d:ohpD,c:'var(--yellow)'}].map(ex=>`
@@ -1627,32 +1645,32 @@ function renderProgress(){
       content=`
       <div class="row" style="gap:8px;margin-bottom:10px">
         <div class="card" style="flex:1;text-align:center;padding:12px">
-          <div style="font-size:18px">👟</div>
+          <div style="color:var(--teal)">${IC('foot',18,'var(--teal)')}</div>
           <div style="font-size:18px;font-weight:900;color:var(--teal)">${todayA?todayA.steps.toLocaleString():'—'}</div>
           <div class="fs-11 text-dim">STEPS</div>
         </div>
         <div class="card" style="flex:1;text-align:center;padding:12px">
-          <div style="font-size:18px">🔥</div>
+          <div style="color:var(--orange)">${IC('flame',18,'var(--orange)')}</div>
           <div style="font-size:18px;font-weight:900;color:var(--orange)">${todayA?todayA.cal:'—'}</div>
           <div class="fs-11 text-dim">ACTIVE KCAL</div>
         </div>
         <div class="card" style="flex:1;text-align:center;padding:12px">
-          <div style="font-size:18px">❤️</div>
+          <div style="color:var(--red)">${IC('heart',18,'var(--red)')}</div>
           <div style="font-size:18px;font-weight:900;color:var(--red)">${latestRHR?latestRHR.bpm:'—'}</div>
           <div class="fs-11 text-dim">REST HR</div>
         </div>
       </div>
       <div class="card" style="margin-bottom:10px">
-        <div class="row between mb-sm"><span class="section-label" style="margin:0">❤️ Resting HR (last ${rhr.length} days)</span>${latestRHR?badge(latestRHR.bpm+' bpm','var(--red)'):''}</div>
+        <div class="row between mb-sm"><span class="section-label" style="margin:0">${IC('heart',13,'var(--red)')} Resting HR (last ${rhr.length} days)</span>${latestRHR?badge(latestRHR.bpm+' bpm','var(--red)'):''}</div>
         ${lineChart(rhrData, CW, 130, 'var(--red)', '')}
       </div>
       <div class="card" style="margin-bottom:10px">
-        <div class="section-label">👟 Steps (last 7 days)</div>
+        <div class="section-label">${IC('foot',13,'var(--teal)')} Steps (last 7 days)</div>
         ${barChart(stepBars, CW, 110, 'var(--teal)')}
       </div>
       <div class="card" style="margin-bottom:10px">
         <div class="row between">
-          <div><div class="section-label" style="margin:0">😴 Sleep</div><div class="fs-11 text-muted">7-day avg</div></div>
+          <div><div class="section-label" style="margin:0">${IC('moon',13,'var(--purple)')} Sleep</div><div class="fs-11 text-muted">7-day avg</div></div>
           <div style="text-align:right"><div style="font-size:22px;font-weight:900;color:var(--purple)">${avgSleep?fmtH(avgSleep):'—'}</div>${lastSleep?`<div class="fs-11 text-dim">Last: ${fmtH(lastSleep.total)}</div>`:''}</div>
         </div>
         ${lastSleep?`<div class="row" style="gap:6px;margin-top:8px">
@@ -1660,7 +1678,7 @@ function renderProgress(){
         </div>`:''}
       </div>
       <div class="card">
-        <div class="section-label">🏃 Recent cardio (${wd.sport.length})</div>
+        <div class="section-label">${IC('run',13)} Recent cardio (${wd.sport.length})</div>
         ${wd.sport.length?[...wd.sport].sort((a,b)=>a.date<b.date?1:-1).slice(0,8).map(s=>`
           <div class="row between" style="padding:8px 0;border-bottom:1px solid var(--border)">
             <div><div class="fw-700 fs-13">${s.name}</div><div class="fs-11 text-muted">${s.date}</div></div>
@@ -1710,7 +1728,7 @@ const QUICK_Q=[
 ];
 
 if(!STATE.aiMessages.length){
-  STATE.aiMessages.push({id:uid(),role:'ai',text:"👋 Hi! I'm your FitForge AI Coach.\n\nI've read all your workout and nutrition history. I work **offline** out of the box — or tap the **⚙️ button** (top right) to add a free **Gemini** API key for smarter, conversational coaching.\n\nAsk me anything about your training, diet, or body composition!",ts:new Date().toISOString()});
+  STATE.aiMessages.push({id:uid(),role:'ai',text:"Hi — I'm your FitForge AI Coach.\n\nI've read all your training and nutrition history and work **offline** out of the box. Tap the **settings button** (top-right) to add a free **Gemini** API key for smarter, conversational coaching.\n\nAsk me anything about your training, diet, or recovery.",ts:new Date().toISOString()});
   save();
 }
 
@@ -1751,13 +1769,13 @@ function renderAI(){
     <div style="padding:12px 16px;border-bottom:1px solid var(--border);background:var(--surface)">
       <div class="row between">
         <div class="row" style="gap:10px">
-          <div style="width:36px;height:36px;border-radius:50%;background:var(--accent-lo);border:1px solid rgba(108,99,255,.3);display:flex;align-items:center;justify-content:center;font-size:18px">🤖</div>
+          <div style="width:36px;height:36px;border-radius:50%;background:var(--accent-lo);border:1px solid rgba(108,99,255,.3);display:flex;align-items:center;justify-content:center;color:var(--accent)">${IC('sparkle',20,'var(--accent)')}</div>
           <div><div style="font-weight:800">FitForge AI Coach</div><div class="fs-11 text-muted">${gem?'Gemini · Reads your data':'Offline · Reads your data'}</div></div>
         </div>
         <button onclick="openAISettings()" style="background:${gem?'var(--accent-lo)':'var(--green-lo)'};border:1px solid ${gem?'rgba(108,99,255,.4)':'rgba(0,200,150,.3)'};border-radius:50px;padding:5px 12px;display:flex;align-items:center;gap:5px;cursor:pointer">
           <div style="width:6px;height:6px;border-radius:50%;background:${gem?'var(--accent)':'var(--green)'}"></div>
           <span style="font-size:10px;color:${gem?'var(--accent)':'var(--green)'};font-weight:700">${gem?'Gemini':'Offline'}</span>
-          <span style="font-size:11px;opacity:.7">⚙️</span>
+          <span style="opacity:.75">${IC('gear',13)}</span>
         </button>
       </div>
     </div>
@@ -1772,10 +1790,10 @@ function renderAI(){
     <!-- Messages -->
     <div id="ai-msgs" style="flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px;padding-bottom:80px">
       ${msgs.map(m=>`<div class="chat-msg ${m.role}">
-        ${m.role==='ai'?'<div class="chat-avatar">🤖</div>':''}
+        ${m.role==='ai'?'<div class="chat-avatar">'+IC('sparkle',16,'var(--accent)')+'</div>':''}
         <div class="chat-bubble ${m.role}">${formatAIText(m.text)}</div>
       </div>`).join('')}
-      ${isTyping?`<div class="chat-msg ai"><div class="chat-avatar">🤖</div><div class="chat-bubble ai"><div class="typing-dots"><span></span><span></span><span></span></div></div></div>`:''}
+      ${isTyping?`<div class="chat-msg ai"><div class="chat-avatar">${IC('sparkle',16,'var(--accent)')}</div><div class="chat-bubble ai"><div class="typing-dots"><span></span><span></span><span></span></div></div></div>`:''}
     </div>
 
     <!-- Input -->
@@ -1932,7 +1950,7 @@ function openWatchImport(){
     <div class="modal-sheet" onclick="event.stopPropagation()">
       <div class="modal-handle"></div>
       <div class="row between mb-md">
-        <div style="font-size:18px;font-weight:800">⌚ Import Watch Data</div>
+        <div style="font-size:18px;font-weight:800">${IC('watch',18)} Import Watch Data</div>
         <button class="btn-ghost" onclick="document.getElementById('watch-modal').remove()" style="font-size:20px">✕</button>
       </div>
       <div class="fs-12 text-muted mb-md" style="line-height:1.6">
@@ -2034,7 +2052,7 @@ function renderFiles(){
     <!-- Watch import -->
     <div class="card accent-border" style="margin-bottom:12px">
       <div class="row between mb-sm">
-        <span class="section-label" style="color:var(--accent);margin:0">⌚ AMAZFIT / ZEPP WATCH</span>
+        <span class="section-label" style="color:var(--accent);margin:0">${IC('watch',13)} AMAZFIT / ZEPP WATCH</span>
         ${STATE.watch?badge('Synced','var(--green)'):badge('Not imported','var(--dim)')}
       </div>
       ${STATE.watch?`<div class="fs-12 text-muted mb-sm">Last import: ${new Date(STATE.watch.importedAt).toLocaleDateString('en-IN',{day:'numeric',month:'short'})} · ${STATE.watch.activity.length} activity days · ${STATE.watch.sport.length} workouts · ${STATE.watch.rhr.length} HR days</div>`:`<div class="fs-12 text-muted mb-sm">Import your Zepp data export (steps, resting HR, sleep, weight, cardio). Decrypted on-device — nothing uploaded.</div>`}
@@ -2047,15 +2065,15 @@ function renderFiles(){
       <div class="fs-12 text-muted" style="margin-bottom:12px">All workouts, nutrition, and body metrics</div>
       <div class="export-btns">
         <button class="export-btn" onclick="doExport('markdown')">
-          <span style="font-size:24px">📝</span>
+          <span style="color:var(--accent)">${IC('note',26,'var(--accent)')}</span>
           <span class="fs-12 fw-700 text-accent">Markdown</span>
         </button>
         <button class="export-btn" onclick="doExport('csv')">
-          <span style="font-size:24px">📊</span>
+          <span style="color:var(--green)">${IC('table',26,'var(--green)')}</span>
           <span class="fs-12 fw-700 text-green">CSV</span>
         </button>
         <button class="export-btn" onclick="doExport('json')">
-          <span style="font-size:24px">🔧</span>
+          <span style="color:var(--orange)">${IC('code',26,'var(--orange)')}</span>
           <span class="fs-12 fw-700" style="color:var(--orange)">JSON</span>
         </button>
       </div>
@@ -2087,19 +2105,13 @@ function renderFiles(){
     <!-- Privacy -->
     <div class="card" style="margin-bottom:12px">
       <div class="section-label">Privacy & Ownership</div>
-      ${[
-        ['🔒','No cloud account required'],
-        ['📱','Data stored locally on this device'],
-        ['📝','Human-readable Markdown files'],
-        ['♾️', 'Usable after 10+ years, any editor'],
-        ['🚫','No ads, no telemetry, no tracking'],
-        ['🔄','Export anytime — you own your data'],
-      ].map(([i,t])=>`<div class="privacy-item"><span style="font-size:18px">${i}</span><span class="fs-13">${t}</span></div>`).join('')}
+      ${['No cloud account required','Data stored locally on this device','Human-readable Markdown files','Usable after 10+ years, any editor','No ads, no telemetry, no tracking','Export anytime — you own your data'
+      ].map(t=>`<div class="privacy-item"><span style="color:var(--green);flex-shrink:0">${IC('check',16,'var(--green)')}</span><span class="fs-13">${t}</span></div>`).join('')}
     </div>
 
     <!-- Install tip -->
     <div class="card" style="margin-bottom:12px;border-color:rgba(108,99,255,.4)">
-      <div class="section-label" style="color:var(--accent)">📱 INSTALL ON IPHONE</div>
+      <div class="section-label" style="color:var(--accent)">INSTALL ON IPHONE</div>
       <div class="fs-13" style="line-height:1.8">
         <strong>Safari only:</strong> tap the <strong>Share</strong> button (□↑) at the bottom of Safari, then tap <strong>"Add to Home Screen"</strong>.
         <br><br>
