@@ -555,6 +555,135 @@ async function askGemini(question){
   return txt.trim();
 }
 
+// ── Generic Gemini call (JSON / vision) — reused by food & photo features ──
+async function geminiGenerate(contents, opts){
+  opts=opts||{};
+  if(!AICFG.key) throw new Error('No API key set');
+  const model=(AICFG.model||'gemini-2.5-flash').trim();
+  const url=`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(AICFG.key.trim())}`;
+  const gc={ temperature: opts.temperature!=null?opts.temperature:0.3,
+             maxOutputTokens: opts.maxOutputTokens||600, thinkingConfig:{ thinkingBudget:0 } };
+  if(opts.json){ gc.responseMimeType='application/json'; if(opts.schema) gc.responseSchema=opts.schema; }
+  const body={ contents, generationConfig:gc };
+  if(opts.system) body.system_instruction={ parts:[{ text:opts.system }] };
+  let res;
+  try{ res=await fetch(url,{ method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) }); }
+  catch(e){ throw new Error('Network error — check your connection'); }
+  if(!res.ok){
+    let m=`HTTP ${res.status}`;
+    try{ const j=await res.json(); if(j.error&&j.error.message) m=j.error.message; }catch(e){}
+    if(res.status===400 && /API key not valid/i.test(m)) m='API key not valid — check AI ⚙️ Settings';
+    if(res.status===429) m='Rate limit reached — wait a moment';
+    throw new Error(m);
+  }
+  const j=await res.json();
+  const c=j.candidates&&j.candidates[0];
+  const txt=c&&c.content&&c.content.parts ? c.content.parts.map(p=>p.text||'').join('') : '';
+  if(!txt.trim()) throw new Error('Empty response from Gemini');
+  return txt.trim();
+}
+
+// Lightweight toast
+function aiToast(msg,type){
+  let el=document.getElementById('ai-toast');
+  if(!el){ el=document.createElement('div'); el.id='ai-toast'; document.body.appendChild(el); }
+  const col={ok:'var(--green)',warn:'var(--orange)',err:'var(--red)'}[type]||'var(--accent)';
+  el.style.cssText=`position:fixed;left:50%;bottom:90px;transform:translateX(-50%);z-index:400;max-width:360px;width:calc(100% - 32px);background:var(--card);border:1px solid ${col};color:var(--text);padding:12px 16px;border-radius:12px;font-size:13px;font-weight:600;box-shadow:0 8px 28px rgba(0,0,0,.45);text-align:center`;
+  el.textContent=msg;
+  clearTimeout(el._t); el._t=setTimeout(()=>{ el.remove(); },3400);
+}
+
+// Resize image client-side before upload to keep token/latency cost low
+function fileToB64Resized(file,maxDim){
+  return new Promise((resolve,reject)=>{
+    const img=new Image(); const url=URL.createObjectURL(file);
+    img.onload=()=>{
+      let w=img.width,h=img.height;
+      const scale=Math.min(1,(maxDim||768)/Math.max(w,h));
+      w=Math.max(1,Math.round(w*scale)); h=Math.max(1,Math.round(h*scale));
+      const cv=document.createElement('canvas'); cv.width=w; cv.height=h;
+      cv.getContext('2d').drawImage(img,0,0,w,h);
+      URL.revokeObjectURL(url);
+      try{ const d=cv.toDataURL('image/jpeg',0.8); resolve({ b64:d.split(',')[1], mime:'image/jpeg' }); }
+      catch(e){ reject(new Error('Could not process image')); }
+    };
+    img.onerror=()=>{ URL.revokeObjectURL(url); reject(new Error('Could not read image')); };
+    img.src=url;
+  });
+}
+
+// ── FEATURE: AI natural-language food parsing (opt-in via ✨) ──
+const FOOD_SCHEMA={ type:'ARRAY', items:{ type:'OBJECT', properties:{
+  name:{type:'STRING'}, cal:{type:'NUMBER'}, p:{type:'NUMBER'}, c:{type:'NUMBER'}, f:{type:'NUMBER'}, fi:{type:'NUMBER'}
+}, required:['name','cal','p','c','f','fi'] } };
+async function geminiParseFoods(text){
+  const sys='You are a nutrition parser. Estimate macros for the foods described. Assume typical Indian serving sizes when a quantity is not given. Return a JSON array — one element per distinct food, with realistic integer-ish values. "name" should be a short label including the quantity.';
+  const out=await geminiGenerate(
+    [{role:'user',parts:[{text:`Parse and estimate macros for: "${text}"`}]}],
+    { json:true, schema:FOOD_SCHEMA, system:sys, maxOutputTokens:600, temperature:0.2 });
+  const arr=JSON.parse(out);
+  if(!Array.isArray(arr)||!arr.length) throw new Error('No foods recognised');
+  return arr;
+}
+async function addFoodAI(){
+  const inp=document.getElementById('food-input');
+  const t=(inp&&inp.value||'').trim();
+  if(!t) return;
+  if(!geminiActive()){ aiToast('Add your Gemini key in AI → ⚙️ to use AI food logging','warn'); return; }
+  const btn=document.getElementById('food-ai-btn');
+  if(btn){ btn.disabled=true; btn.textContent='…'; }
+  aiToast('✨ Reading your food…','ok');
+  try{
+    const items=await geminiParseFoods(t);
+    const today=TODAY();
+    let day=STATE.nutrition.find(n=>n.date===today);
+    if(!day){ day={id:uid(),date:today,foods:[]}; STATE.nutrition.push(day); }
+    items.forEach(it=>day.foods.push({ id:uid(), name:String(it.name||'food'), meal:selMeal,
+      cal:Math.round(+it.cal||0), p:+(+it.p||0).toFixed(1), c:+(+it.c||0).toFixed(1), f:+(+it.f||0).toFixed(1), fi:+(+it.fi||0).toFixed(1) }));
+    save(); if(inp) inp.value=''; renderNutrition();
+    aiToast(`✨ Added ${items.length} item${items.length>1?'s':''} to ${selMeal}`,'ok');
+  }catch(e){
+    if(btn){ btn.disabled=false; btn.textContent='✨'; }
+    aiToast('AI parse failed: '+e.message,'err');
+  }
+}
+
+// ── FEATURE: photo → exercise (Gemini vision) ──
+const EX_SCHEMA={ type:'OBJECT', properties:{
+  exercise:{type:'STRING'}, muscle:{type:'STRING'}, note:{type:'STRING'}
+}, required:['exercise','muscle'] };
+async function geminiIdentifyExercise(b64,mime){
+  const sys='You identify gym equipment, machines or free weights from a photo and name the single most likely exercise someone would log. "muscle" MUST be exactly one of: Chest, Back, Legs, Shoulders, Arms, Core. "note" = one short tip on using it (max 12 words).';
+  const out=await geminiGenerate(
+    [{role:'user',parts:[
+      {text:'Identify this gym equipment and the common exercise name for it.'},
+      {inline_data:{ mime_type:mime, data:b64 }}
+    ]}],
+    { json:true, schema:EX_SCHEMA, system:sys, maxOutputTokens:300, temperature:0.2 });
+  return JSON.parse(out);
+}
+function startPhotoExercise(){
+  if(!geminiActive()){ aiToast('Add your Gemini key in AI → ⚙️ to identify by photo','warn'); return; }
+  const inp=document.getElementById('ex-photo-input');
+  if(inp) inp.click();
+}
+async function onExercisePhoto(input){
+  const file=input.files&&input.files[0]; input.value='';
+  if(!file) return;
+  aiToast('🔍 Identifying equipment…','ok');
+  try{
+    const img=await fileToB64Resized(file,768);
+    const r=await geminiIdentifyExercise(img.b64,img.mime);
+    const muscle=['Chest','Back','Legs','Shoulders','Arms','Core'].includes(r.muscle)?r.muscle:'Chest';
+    const ok=confirm(`📷 Detected: ${r.exercise}\nMuscle group: ${muscle}${r.note?'\n\n💡 '+r.note:''}\n\nAdd this to your workout? You can then log your reps & weight.`);
+    if(ok){
+      if(!STATE.activeWorkout) startWorkout();
+      addExercise(r.exercise,muscle);
+      aiToast(`Added ${r.exercise} — now log your sets ✓`,'ok');
+    }
+  }catch(e){ aiToast('Couldn’t identify: '+e.message,'err'); }
+}
+
 // ── AI SETTINGS MODAL ──────────────────────────────────────────
 function openAISettings(){
   let el=document.getElementById('ai-modal');
@@ -1156,7 +1285,10 @@ function renderActiveWorkout() {
     <div class="modal-sheet">
       <div class="modal-handle"></div>
       <div style="font-size:18px;font-weight:800;margin-bottom:12px">Add Exercise</div>
-      <input id="custom-ex-input" placeholder="Custom exercise name..." style="margin-bottom:12px" onkeydown="if(event.key==='Enter'){const v=this.value.trim();if(v)addExercise(v,selMuscle);}">
+      <input id="ex-photo-input" type="file" accept="image/*" capture="environment" style="display:none" onchange="onExercisePhoto(this)">
+      <button class="btn" style="width:100%;margin-bottom:6px;border:1px dashed var(--accent);background:var(--accent-lo);color:var(--accent);font-weight:700" onclick="startPhotoExercise()">📷 Identify equipment by photo (AI)</button>
+      <div class="fs-11 text-dim" style="margin-bottom:12px;text-align:center">Don't know the machine's name? Snap it — AI names the exercise.</div>
+      <input id="custom-ex-input" placeholder="Or type a custom exercise name..." style="margin-bottom:12px" onkeydown="if(event.key==='Enter'){const v=this.value.trim();if(v)addExercise(v,selMuscle);}">
       <div style="overflow-x:auto;margin-bottom:12px">
         <div class="row" style="gap:6px;flex-wrap:nowrap;padding-bottom:4px">
           ${Object.keys(QUICK_EX).map(m=>`<button class="muscle-tab${m===selMuscle?' active':''}" data-muscle="${m}"
@@ -1267,10 +1399,12 @@ function renderNutritionHTML(){
     <!-- Input -->
     <div class="card" style="margin-bottom:10px">
       <div class="section-label">NATURAL LANGUAGE ENTRY</div>
-      <div class="row" style="gap:8px;margin-bottom:10px">
-        <input id="food-input" placeholder="4 eggs, 200g chicken, 2 bananas..." style="flex:1">
-        <button class="btn btn-primary" style="padding:10px 16px;font-size:18px;border-radius:10px;flex-shrink:0" onclick="addFood()">+</button>
+      <div class="row" style="gap:8px;margin-bottom:6px">
+        <input id="food-input" placeholder="2 rotis with dal & a glass of milk..." style="flex:1">
+        <button class="btn btn-secondary" id="food-ai-btn" title="AI parse (any food / sentences)" style="padding:10px 14px;font-size:18px;border-radius:10px;flex-shrink:0;border:1px solid var(--accent);color:var(--accent)" onclick="addFoodAI()">✨</button>
+        <button class="btn btn-primary" style="padding:10px 16px;font-size:18px;border-radius:10px;flex-shrink:0" title="Quick match from built-in foods" onclick="addFood()">+</button>
       </div>
+      <div class="fs-11 text-dim" style="margin-bottom:10px">✨ AI = understands any food or full sentence · + = instant match from the built-in list</div>
       <!-- Meal selector -->
       <div style="overflow-x:auto;margin-bottom:10px">
         <div class="row" style="gap:5px;flex-wrap:nowrap">
