@@ -153,22 +153,22 @@ input[type=number]::-webkit-outer-spin-button,input[type=number]::-webkit-inner-
   <div id="screen"></div>
   <nav id="nav">
     <button class="nav-btn active" data-tab="home" onclick="showTab('home')">
-      <span class="icon">🏠</span><span class="label">Home</span>
+      <span class="icon"><svg viewBox="0 0 24 24" width="23" height="23" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20a1 1 0 0 0 1 1h3v-6h6v6h3a1 1 0 0 0 1-1V9.5"/></svg></span><span class="label">Home</span>
     </button>
     <button class="nav-btn" data-tab="workout" onclick="showTab('workout')">
-      <span class="icon">🏋️</span><span class="label">Train</span>
+      <span class="icon"><svg viewBox="0 0 24 24" width="23" height="23" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 6.5l11 11"/><path d="M4 7l-1 1a1.5 1.5 0 0 0 0 2l1 1M7 4l-1 1M20 17l1-1a1.5 1.5 0 0 0 0-2l-1-1M17 20l1-1M4 7l3 3M14 7l3 3M7 14l3 3M17 10l-3 3"/></svg></span><span class="label">Train</span>
     </button>
     <button class="nav-btn" data-tab="nutrition" onclick="showTab('nutrition')">
-      <span class="icon">🥗</span><span class="label">Diet</span>
+      <span class="icon"><svg viewBox="0 0 24 24" width="23" height="23" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3v7a2 2 0 0 0 4 0V3M8 3v18"/><path d="M16 3c-1.4 0-2.5 2-2.5 4.5S14.6 12 16 12v9"/></svg></span><span class="label">Diet</span>
     </button>
     <button class="nav-btn" data-tab="progress" onclick="showTab('progress')">
-      <span class="icon">📈</span><span class="label">Progress</span>
+      <span class="icon"><svg viewBox="0 0 24 24" width="23" height="23" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v17a1 1 0 0 0 1 1h17"/><path d="M7 14l3.5-4 3 2.5L21 6"/></svg></span><span class="label">Progress</span>
     </button>
     <button class="nav-btn" data-tab="ai" onclick="showTab('ai')">
-      <span class="icon">🤖</span><span class="label">AI</span>
+      <span class="icon"><svg viewBox="0 0 24 24" width="23" height="23" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.7 4.8L18.5 9.5l-4.8 1.7L12 16l-1.7-4.8L5.5 9.5l4.8-1.7z"/><path d="M18.5 15.5l.7 2 .8.7-2 .8-.7 2-.8-2-2-.8 2-.7z"/></svg></span><span class="label">AI</span>
     </button>
     <button class="nav-btn" data-tab="files" onclick="showTab('files')">
-      <span class="icon">📁</span><span class="label">Files</span>
+      <span class="icon"><svg viewBox="0 0 24 24" width="23" height="23" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h3.5l2 2H19a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span><span class="label">Files</span>
     </button>
   </nav>
 </div>
@@ -877,6 +877,22 @@ function barChart(data, w, h, defColor) {
 // ══════════════════════════════════════════════════════════════
 let currentTab = 'home';
 
+// Inline line-icon set (inherits currentColor). c overrides color; s = size.
+function IC(name,s,c){
+  s=s||18; const st=`width:${s}px;height:${s}px;${c?'color:'+c:''}`;
+  const P={
+    flame:'<path d="M12 3c2 3 5 4.5 5 8a5 5 0 0 1-10 0c0-1.2.4-2 1-2.8.3 1.2 1.2 1.8 2 1.8 .8 0 1.2-1 .5-2.2C9.5 6 11 4 12 3z"/>',
+    foot:'<path d="M7 4c1.6 0 3 1.6 3 4.5S8.6 13 7 13s-2.5-1.4-2.5-3S5 4 7 4z"/><path d="M5 15c2 0 4 1 4 3s-1.6 2-4 2-3-1-3-2.2S3 15 5 15z"/><path d="M16 6c1 0 1.7 1 1.7 2.2S17 10 16 10s-1.6-.8-1.6-1.9S15 6 16 6zM19.5 9c.8 0 1.3.8 1.3 1.7s-.6 1.5-1.4 1.5-1.3-.7-1.3-1.6.6-1.6 1.4-1.6z"/>',
+    heart:'<path d="M12 20s-7-4.5-7-9.5A3.5 3.5 0 0 1 12 8a3.5 3.5 0 0 1 7 2.5C19 15.5 12 20 12 20z"/>',
+    scale:'<path d="M12 4v15M7 19h10M5 9h14"/><path d="M5 9l-2.5 5a2.5 2.5 0 0 0 5 0z"/><path d="M19 9l-2.5 5a2.5 2.5 0 0 0 5 0z"/>',
+    layers:'<path d="M12 3l8 4-8 4-8-4z"/><path d="M4 12l8 4 8-4M4 16.5l8 4 8-4"/>',
+    bolt:'<path d="M13 3 5 13h5l-1 8 8-10h-5z"/>',
+    calendar:'<rect x="4" y="5" width="16" height="16" rx="2"/><path d="M4 9h16M8 3v4M16 3v4"/>',
+    bulb:'<path d="M9 18h6M10 21h4M12 3a6 6 0 0 1 4 10.5c-.6.6-1 1.2-1 2H9c0-.8-.4-1.4-1-2A6 6 0 0 1 12 3z"/>',
+    alert:'<path d="M12 4 2.5 20h19z"/><path d="M12 10v4M12 17h.01"/>'
+  };
+  return `<svg viewBox="0 0 24 24" style="${st};vertical-align:middle" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${P[name]||''}</svg>`;
+}
 function renderHome() {
   const today=TODAY();
   const todayNut=getTodayNutrition();
@@ -926,12 +942,14 @@ function renderHome() {
     <div class="row between" style="margin-bottom:20px">
       <div>
         <div class="fs-11 text-muted" style="letter-spacing:.5px;text-transform:uppercase">${new Date().toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'short'})}</div>
-        <div style="font-size:22px;font-weight:800">${s.name} 💪</div>
+        <div style="font-size:22px;font-weight:800">${s.name}</div>
       </div>
-      <div style="background:var(--orange-lo);border:1px solid rgba(255,122,47,.3);border-radius:12px;padding:8px 12px;text-align:center">
-        <div style="font-size:20px">🔥</div>
-        <div style="font-size:18px;font-weight:900;color:var(--orange)">${streak}</div>
-        <div style="font-size:9px;color:var(--orange);font-weight:700">DAY${streak!==1?'S':''}</div>
+      <div style="background:var(--orange-lo);border:1px solid rgba(255,122,47,.3);border-radius:12px;padding:8px 14px;text-align:center;display:flex;align-items:center;gap:8px">
+        <span style="color:var(--orange)">${IC('flame',20)}</span>
+        <div style="text-align:left;line-height:1.05">
+          <div style="font-size:18px;font-weight:900;color:var(--orange)">${streak}</div>
+          <div style="font-size:9px;color:var(--orange);font-weight:700;letter-spacing:.5px">DAY${streak!==1?'S':''}</div>
+        </div>
       </div>
     </div>
 
@@ -958,23 +976,23 @@ function renderHome() {
     <!-- Stats row -->
     <div class="row" style="gap:8px;margin-bottom:10px">
       ${[
-        {emoji:'⚖️',label:'Weight',val:currentW+'kg',color:'var(--green)'},
-        {emoji:'📦',label:'Vol/Week',val:(weekVol/1000).toFixed(1)+'t',color:'var(--orange)'},
-        {emoji:'🥩',label:'Avg Protein',val:avgProt+'g',color:'var(--teal)'},
-      ].map(s=>`<div class="card" style="flex:1;text-align:center;padding:10px">
-        <div style="font-size:18px">${s.emoji}</div>
-        <div style="font-size:16px;font-weight:900;color:${s.color}">${s.val}</div>
-        <div style="font-size:9px;color:var(--dim);margin-top:2px;text-transform:uppercase">${s.label}</div>
+        {ic:'scale',label:'Weight',val:currentW+'kg',color:'var(--green)'},
+        {ic:'layers',label:'Vol/Week',val:(weekVol/1000).toFixed(1)+'t',color:'var(--orange)'},
+        {ic:'bolt',label:'Avg Protein',val:avgProt+'g',color:'var(--teal)'},
+      ].map(s=>`<div class="card" style="flex:1;text-align:center;padding:12px 10px">
+        <div style="color:${s.color};opacity:.85;margin-bottom:2px">${IC(s.ic,18,s.color)}</div>
+        <div style="font-size:17px;font-weight:900;color:${s.color}">${s.val}</div>
+        <div style="font-size:9px;color:var(--dim);margin-top:2px;text-transform:uppercase;letter-spacing:.5px">${s.label}</div>
       </div>`).join('')}
     </div>
 
     ${(()=>{ const ta=watchToday(), rh=watchLatestRHR(); if(!ta&&!rh) return '';
       return `<div class="card" onclick="showTab('progress');progressTab='watch';renderTab()" style="cursor:pointer;margin-bottom:10px">
-        <div class="row between mb-sm"><span class="section-label" style="margin:0">⌚ From your watch</span><span style="font-size:14px;color:var(--accent)">›</span></div>
+        <div class="row between mb-sm"><span class="section-label" style="margin:0">FROM YOUR WATCH</span><span style="font-size:14px;color:var(--accent)">›</span></div>
         <div class="row" style="gap:8px">
-          <div style="flex:1;text-align:center"><div style="font-size:16px">👟</div><div style="font-weight:900;color:var(--teal)">${ta?ta.steps.toLocaleString():'—'}</div><div style="font-size:9px;color:var(--dim);text-transform:uppercase">Steps</div></div>
-          <div style="flex:1;text-align:center"><div style="font-size:16px">🔥</div><div style="font-weight:900;color:var(--orange)">${ta?ta.cal:'—'}</div><div style="font-size:9px;color:var(--dim);text-transform:uppercase">Active kcal</div></div>
-          <div style="flex:1;text-align:center"><div style="font-size:16px">❤️</div><div style="font-weight:900;color:var(--red)">${rh?rh.bpm:'—'}</div><div style="font-size:9px;color:var(--dim);text-transform:uppercase">Rest HR</div></div>
+          <div style="flex:1;text-align:center"><div style="color:var(--teal)">${IC('foot',17,'var(--teal)')}</div><div style="font-weight:900;color:var(--teal)">${ta?ta.steps.toLocaleString():'—'}</div><div style="font-size:9px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px">Steps</div></div>
+          <div style="flex:1;text-align:center"><div style="color:var(--orange)">${IC('flame',17,'var(--orange)')}</div><div style="font-weight:900;color:var(--orange)">${ta?ta.cal:'—'}</div><div style="font-size:9px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px">Active kcal</div></div>
+          <div style="flex:1;text-align:center"><div style="color:var(--red)">${IC('heart',17,'var(--red)')}</div><div style="font-weight:900;color:var(--red)">${rh?rh.bpm:'—'}</div><div style="font-size:9px;color:var(--dim);text-transform:uppercase;letter-spacing:.5px">Rest HR</div></div>
         </div>
       </div>`; })()}
 
@@ -983,16 +1001,16 @@ function renderHome() {
     <!-- Tomorrow recommendation -->
     <div class="card">
       <div class="row between mb-sm">
-        <span class="card-title">📅 Tomorrow</span>
+        <span class="card-title row" style="gap:6px;align-items:center"><span style="color:var(--muted)">${IC('calendar',15,'var(--muted)')}</span> Tomorrow</span>
         ${badge(rec.group,'var(--orange)')}
       </div>
-      <div class="fs-11 text-muted" style="margin-bottom:10px;font-style:italic">💡 ${rec.reason}</div>
+      <div class="fs-11 text-muted row" style="margin-bottom:10px;gap:6px;align-items:center"><span style="color:var(--yellow);flex-shrink:0">${IC('bulb',14,'var(--yellow)')}</span><span style="font-style:italic">${rec.reason}</span></div>
       ${rec.plan.slice(0,3).map((ex,i)=>`
         <div style="display:flex;justify-content:space-between;padding:8px 0;${i<2?'border-bottom:1px solid var(--border)':''}">
           <span class="fw-700 fs-13">${ex.n}</span>
           <span class="fs-11 text-muted">${ex.s}×${ex.r}</span>
         </div>`).join('')}
-      ${rec.neglected.length?`<div style="margin-top:8px;padding:8px;background:rgba(255,209,102,.1);border-radius:8px;border:1px solid rgba(255,209,102,.3)"><span style="font-size:11px;color:var(--yellow)">⚠️ Neglected: ${rec.neglected.join(', ')}</span></div>`:''}
+      ${rec.neglected.length?`<div class="row" style="margin-top:8px;padding:8px;background:rgba(255,209,102,.1);border-radius:8px;border:1px solid rgba(255,209,102,.3);gap:6px;align-items:center"><span style="color:var(--yellow);flex-shrink:0">${IC('alert',13,'var(--yellow)')}</span><span style="font-size:11px;color:var(--yellow)">Neglected: ${rec.neglected.join(', ')}</span></div>`:''}
     </div>
 
     <!-- Macro chips -->
