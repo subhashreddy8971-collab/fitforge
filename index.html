@@ -1941,6 +1941,81 @@ async function importZeppZip(file,password,statusCb){
 }
 
 // --- Import UI (file + password) ---
+// --- BLE Scale (BeatXP / Fitdays / Icomon) ---
+const SCALE_SERVICE = '0000fff0-0000-1000-8000-00805f9b34fb';
+const SCALE_CHAR    = '0000fff1-0000-1000-8000-00805f9b34fb';
+
+async function syncBleScale() {
+  if (!window.Capacitor) { alert("Bluetooth is only available in the Android app."); return; }
+  const Ble = Capacitor.Plugins.BleClient;
+  if (!Ble) { alert("Bluetooth plugin not found."); return; }
+
+  const btn = event.currentTarget;
+  const oldText = btn.innerText;
+  btn.innerText = 'Scanning...';
+  btn.disabled = true;
+
+  try {
+    await Ble.initialize();
+    
+    // Scan for scale (Icomon scales often start with 80:F4 or have "Scale" in name)
+    const device = await Ble.requestDevice({
+      services: [SCALE_SERVICE],
+      optionalServices: [SCALE_SERVICE]
+    });
+
+    if (!device) return;
+    btn.innerText = 'Connecting...';
+    
+    await Ble.connect(device.deviceId, (id) => {
+      console.log('Disconnected', id);
+      btn.innerText = oldText;
+      btn.disabled = false;
+    });
+
+    btn.innerText = 'Step on Scale';
+
+    await Ble.startNotifications(device.deviceId, SCALE_SERVICE, SCALE_CHAR, (value) => {
+      // Fitdays/Icomon protocol: 19-20 bytes. Weight at byte 9-10.
+      const data = new Uint8Array(value.buffer);
+      if (data.length < 11) return;
+
+      const isStable = data[5] === 0x03;
+      const weightRaw = (data[9] << 8) | data[10];
+      const weightKg = Math.round((weightRaw / 100) * 10) / 10;
+      
+      // Impedance at byte 11-12 (optional, used for BF% calculation in app)
+      const impedance = (data[11] << 8) | data[12];
+
+      btn.innerText = `Weight: ${weightKg}kg` + (isStable ? ' (Stable)' : '');
+
+      if (isStable && weightKg > 20) {
+        // Save weight
+        const today = TODAY();
+        const idx = STATE.weight.findIndex(w => w.date === today);
+        if (idx >= 0) STATE.weight[idx].kg = weightKg;
+        else STATE.weight.push({ id: uid(), date: today, kg: weightKg });
+        
+        STATE.weight.sort((a,b) => a.date.localeCompare(b.date));
+        save();
+        
+        // Vibrate and disconnect
+        if (navigator.vibrate) navigator.vibrate(200);
+        Ble.stopNotifications(device.deviceId, SCALE_SERVICE, SCALE_CHAR);
+        Ble.disconnect(device.deviceId);
+        alert(`Recorded: ${weightKg}kg`);
+        showTab('files');
+      }
+    });
+
+  } catch (err) {
+    console.error(err);
+    alert("Bluetooth error: " + err.message);
+  } finally {
+    // We don't reset btn here because notifications are async
+  }
+}
+
 async function syncHealthConnect() {
   if (!window.Capacitor) {
     alert("Health Connect is only available in the Android app.");
@@ -1964,7 +2039,7 @@ async function syncHealthConnect() {
       return;
     }
 
-    const types = ['Steps', 'ActiveCaloriesBurned', 'HeartRateSeries', 'RestingHeartRate', 'Weight', 'BodyFat'];
+    const types = ['Steps', 'ActiveCaloriesBurned', 'HeartRateSeries', 'RestingHeartRate', 'Weight', 'BodyFat', 'SleepSession', 'ExerciseSession'];
     const permStatus = await HealthConnect.checkHealthPermissions({ read: types, write: [] });
     
     if (!permStatus.hasAllPermissions) {
@@ -2020,25 +2095,56 @@ async function syncHealthConnect() {
       bodyMap[d].bf = Math.round(r.percentage.value * 10) / 10;
     });
 
+    // Sleep
+    const sleepData = await HealthConnect.readRecords({ type: 'SleepSession', timeRangeFilter });
+    const sleepMap = {};
+    sleepData.records.forEach(r => {
+      const d = new Date(r.startTime).toISOString().split('T')[0];
+      const start = new Date(r.startTime);
+      const end = new Date(r.endTime);
+      const total = Math.round((end - start) / (1000 * 60));
+      sleepMap[d] = sleepMap[d] || { date: d, total: 0, deep: 0, light: 0, rem: 0 };
+      sleepMap[d].total += total;
+    });
+    const sleep = Object.values(sleepMap).sort((a,b) => a.date.localeCompare(b.date));
+
+    // Sport / Exercise
+    const exerciseData = await HealthConnect.readRecords({ type: 'ExerciseSession', timeRangeFilter });
+    const sport = exerciseData.records.map(r => {
+      const start = new Date(r.startTime);
+      const end = new Date(r.endTime);
+      return {
+        type: 0,
+        name: r.title || r.exerciseType || 'Workout',
+        date: r.startTime.split('T')[0],
+        durSec: Math.round((end - start) / 1000),
+        distM: 0,
+        cal: 0
+      };
+    });
+
     // Merge into STATE
     if (!STATE.watch) STATE.watch = { activity:[], sleep:[], sport:[], rhr:[] };
     
-    if (activity.length) {
-      activity.forEach(na => {
-        const idx = STATE.watch.activity.findIndex(a => a.date === na.date);
-        if (idx >= 0) STATE.watch.activity[idx] = na;
-        else STATE.watch.activity.push(na);
+    const mergeWatch = (key, newData) => {
+      newData.forEach(newItem => {
+        const idx = STATE.watch[key].findIndex(item => item.date === newItem.date);
+        if (idx >= 0) STATE.watch[key][idx] = newItem;
+        else STATE.watch[key].push(newItem);
       });
-      STATE.watch.activity.sort((a,b) => a.date.localeCompare(b.date));
-    }
+      STATE.watch[key].sort((a,b) => a.date.localeCompare(b.date));
+    };
 
-    if (rhr.length) {
-      rhr.forEach(nr => {
-        const idx = STATE.watch.rhr.findIndex(r => r.date === nr.date);
-        if (idx >= 0) STATE.watch.rhr[idx] = nr;
-        else STATE.watch.rhr.push(nr);
+    if (activity.length) mergeWatch('activity', activity);
+    if (rhr.length) mergeWatch('rhr', rhr);
+    if (sleep.length) mergeWatch('sleep', sleep);
+    
+    if (sport.length) {
+      sport.forEach(ns => {
+        const exists = STATE.watch.sport.some(s => s.date === ns.date && Math.abs(s.durSec - ns.durSec) < 60);
+        if (!exists) STATE.watch.sport.push(ns);
       });
-      STATE.watch.rhr.sort((a,b) => a.date.localeCompare(b.date));
+      STATE.watch.sport.sort((a,b) => a.date.localeCompare(b.date));
     }
 
     if (Object.keys(bodyMap).length) {
@@ -2057,7 +2163,7 @@ async function syncHealthConnect() {
     STATE.watch.importedAt = new Date().toISOString();
     save();
     showTab('files');
-    alert("Sync complete! Updated " + activity.length + " activity days and " + Object.keys(bodyMap).length + " weight entries.");
+    alert(`Sync complete! Updated ${activity.length} activity days, ${sleep.length} sleep sessions, ${sport.length} workouts, and ${Object.keys(bodyMap).length} weight entries.`);
 
   } catch (err) {
     console.error(err);
@@ -2175,6 +2281,18 @@ function renderFiles(){
         <div class="fs-11 text-muted">${s.l}</div>
       </div>`).join('')}
     </div>
+
+    <!-- Direct Scale Sync (Android only) -->
+    ${window.Capacitor ? `
+    <div class="card accent-border" style="margin-bottom:12px; border-color:var(--yellow)">
+      <div class="row between mb-sm">
+        <span class="section-label" style="color:var(--yellow);margin:0">${IC('scale',13)} DIRECT SCALE SYNC</span>
+        ${badge('Bluetooth','var(--yellow)')}
+      </div>
+      <div class="fs-12 text-muted mb-sm">Connect directly to your BeatXP / Fitdays scale via Bluetooth. No extra apps needed.</div>
+      <button class="btn btn-primary btn-sm" style="background:var(--yellow);color:black" onclick="syncBleScale()">Connect & Weigh</button>
+    </div>
+    ` : ''}
 
     <!-- Health Connect sync (Android only) -->
     ${window.Capacitor ? `
