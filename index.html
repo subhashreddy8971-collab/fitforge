@@ -1941,6 +1941,133 @@ async function importZeppZip(file,password,statusCb){
 }
 
 // --- Import UI (file + password) ---
+async function syncHealthConnect() {
+  if (!window.Capacitor) {
+    alert("Health Connect is only available in the Android app.");
+    return;
+  }
+  const { HealthConnect } = Capacitor.Plugins;
+  if (!HealthConnect) {
+    alert("Health Connect plugin not found.");
+    return;
+  }
+
+  const btn = event.currentTarget;
+  const oldText = btn.innerText;
+  btn.innerText = 'Syncing...';
+  btn.disabled = true;
+
+  try {
+    const availability = await HealthConnect.checkAvailability();
+    if (availability.availability !== 'Available') {
+      alert("Health Connect is " + availability.availability + " on this device.");
+      return;
+    }
+
+    const types = ['Steps', 'ActiveCaloriesBurned', 'HeartRateSeries', 'RestingHeartRate', 'Weight', 'BodyFat'];
+    const permStatus = await HealthConnect.checkHealthPermissions({ read: types, write: [] });
+    
+    if (!permStatus.hasAllPermissions) {
+      const request = await HealthConnect.requestHealthPermissions({ read: types, write: [] });
+      if (!request.hasAllPermissions) {
+        alert("Permissions denied. Cannot sync.");
+        return;
+      }
+    }
+
+    const startTime = new Date();
+    startTime.setDate(startTime.getDate() - 30);
+    const endTime = new Date();
+    const timeRangeFilter = { type: 'between', startTime, endTime };
+
+    // Activity
+    const stepsData = await HealthConnect.readRecords({ type: 'Steps', timeRangeFilter });
+    const calsData = await HealthConnect.readRecords({ type: 'ActiveCaloriesBurned', timeRangeFilter });
+    
+    const activityMap = {};
+    stepsData.records.forEach(r => {
+      const d = new Date(r.startTime).toISOString().split('T')[0];
+      activityMap[d] = activityMap[d] || { date: d, steps: 0, cal: 0 };
+      activityMap[d].steps += r.count;
+    });
+    calsData.records.forEach(r => {
+      const d = new Date(r.startTime).toISOString().split('T')[0];
+      activityMap[d] = activityMap[d] || { date: d, steps: 0, cal: 0 };
+      activityMap[d].cal += Math.round(r.energy.value / 1000);
+    });
+    const activity = Object.values(activityMap).sort((a,b) => a.date.localeCompare(b.date));
+
+    // RHR
+    const rhrData = await HealthConnect.readRecords({ type: 'RestingHeartRate', timeRangeFilter });
+    const rhr = rhrData.records.map(r => ({
+      date: new Date(r.time).toISOString().split('T')[0],
+      bpm: r.beatsPerMinute
+    })).sort((a,b) => a.date.localeCompare(b.date));
+
+    // Weight & Body Fat
+    const weightData = await HealthConnect.readRecords({ type: 'Weight', timeRangeFilter });
+    const fatData = await HealthConnect.readRecords({ type: 'BodyFat', timeRangeFilter });
+    
+    const bodyMap = {};
+    weightData.records.forEach(r => {
+      const d = new Date(r.time).toISOString().split('T')[0];
+      bodyMap[d] = bodyMap[d] || { date: d, kg: 0 };
+      bodyMap[d].kg = Math.round(r.weight.value / 1000 * 10) / 10;
+    });
+    fatData.records.forEach(r => {
+      const d = new Date(r.time).toISOString().split('T')[0];
+      bodyMap[d] = bodyMap[d] || { date: d };
+      bodyMap[d].bf = Math.round(r.percentage.value * 10) / 10;
+    });
+
+    // Merge into STATE
+    if (!STATE.watch) STATE.watch = { activity:[], sleep:[], sport:[], rhr:[] };
+    
+    if (activity.length) {
+      activity.forEach(na => {
+        const idx = STATE.watch.activity.findIndex(a => a.date === na.date);
+        if (idx >= 0) STATE.watch.activity[idx] = na;
+        else STATE.watch.activity.push(na);
+      });
+      STATE.watch.activity.sort((a,b) => a.date.localeCompare(b.date));
+    }
+
+    if (rhr.length) {
+      rhr.forEach(nr => {
+        const idx = STATE.watch.rhr.findIndex(r => r.date === nr.date);
+        if (idx >= 0) STATE.watch.rhr[idx] = nr;
+        else STATE.watch.rhr.push(nr);
+      });
+      STATE.watch.rhr.sort((a,b) => a.date.localeCompare(b.date));
+    }
+
+    if (Object.keys(bodyMap).length) {
+      Object.values(bodyMap).forEach(nb => {
+        const idx = STATE.weight.findIndex(w => w.date === nb.date);
+        if (idx >= 0) {
+          if (nb.kg) STATE.weight[idx].kg = nb.kg;
+          if (nb.bf) STATE.weight[idx].bf = nb.bf;
+        } else {
+          STATE.weight.push({ id: uid(), ...nb });
+        }
+      });
+      STATE.weight.sort((a,b) => a.date.localeCompare(b.date));
+    }
+
+    STATE.watch.importedAt = new Date().toISOString();
+    save();
+    showTab('files');
+    alert("Sync complete! Updated " + activity.length + " activity days and " + Object.keys(bodyMap).length + " weight entries.");
+
+  } catch (err) {
+    console.error(err);
+    alert("Sync failed: " + err.message);
+  } finally {
+    btn.innerText = oldText;
+    btn.disabled = false;
+  }
+}
+
 function openWatchImport(){
   let el=document.getElementById('watch-modal');
   if(!el){ el=document.createElement('div'); el.id='watch-modal'; document.body.appendChild(el); }
@@ -2048,6 +2175,18 @@ function renderFiles(){
         <div class="fs-11 text-muted">${s.l}</div>
       </div>`).join('')}
     </div>
+
+    <!-- Health Connect sync (Android only) -->
+    ${window.Capacitor ? `
+    <div class="card accent-border" style="margin-bottom:12px; border-color:var(--green)">
+      <div class="row between mb-sm">
+        <span class="section-label" style="color:var(--green);margin:0">${IC('bolt',13)} HEALTH CONNECT</span>
+        <div id="hc-badge">${badge('Native Sync','var(--green)')}</div>
+      </div>
+      <div class="fs-12 text-muted mb-sm">Sync steps, calories, heart rate, weight and body fat automatically from Google Health Connect.</div>
+      <button class="btn btn-primary btn-sm" style="background:var(--green);color:black" onclick="syncHealthConnect()">Sync Now</button>
+    </div>
+    ` : ''}
 
     <!-- Watch import -->
     <div class="card accent-border" style="margin-bottom:12px">
