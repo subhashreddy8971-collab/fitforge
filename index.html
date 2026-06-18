@@ -752,6 +752,84 @@ function openAISettings(){
     </div>`;
 }
 function closeAISettings(){ const el=document.getElementById('ai-modal'); if(el) el.remove(); }
+
+function openProfileSettings() {
+  let el = document.getElementById('profile-modal');
+  if (!el) { el = document.createElement('div'); el.id = 'profile-modal'; document.body.appendChild(el); }
+  const s = STATE.settings;
+  el.className = 'modal-overlay';
+  el.onclick = e => { if (e.target === el) closeProfileSettings(); };
+  el.innerHTML = `
+    <div class="modal-sheet" onclick="event.stopPropagation()">
+      <div class="modal-handle"></div>
+      <div class="row between mb-md">
+        <div style="font-size:18px;font-weight:800">${IC('body', 18, 'var(--accent)')} Profile & Goals</div>
+        <button class="btn-ghost" onclick="closeProfileSettings()" style="font-size:20px">✕</button>
+      </div>
+
+      <div class="section-label">Identity</div>
+      <div class="card" style="margin-bottom:12px">
+        <div class="row mb-sm" style="gap:10px">
+          <div style="flex:1">
+            <div class="fs-11 text-muted">Name</div>
+            <input id="prof-name" type="text" value="${s.name}" style="width:100%">
+          </div>
+        </div>
+        <div class="row" style="gap:10px">
+          <div style="flex:1">
+            <div class="fs-11 text-muted">Height (cm)</div>
+            <input id="prof-height" type="number" value="${s.heightCm}" style="width:100%">
+          </div>
+          <div style="flex:1">
+            <div class="fs-11 text-muted">Weight (kg)</div>
+            <input id="prof-weight" type="number" step="0.1" value="${s.weightKg}" style="width:100%">
+          </div>
+        </div>
+      </div>
+
+      <div class="section-label">Daily Targets</div>
+      <div class="card" style="margin-bottom:12px">
+        <div style="margin-bottom:10px">
+          <div class="fs-11 text-muted">Calorie Goal (kcal)</div>
+          <input id="prof-cal" type="number" value="${s.calorieTarget}" style="width:100%;font-size:18px;font-weight:700">
+        </div>
+        <div class="row" style="gap:8px">
+          <div style="flex:1">
+            <div class="fs-11 text-muted">Protein (g)</div>
+            <input id="prof-p" type="number" value="${s.proteinTarget}" style="width:100%">
+          </div>
+          <div style="flex:1">
+            <div class="fs-11 text-muted">Carbs (g)</div>
+            <input id="prof-c" type="number" value="${s.carbTarget}" style="width:100%">
+          </div>
+          <div style="flex:1">
+            <div class="fs-11 text-muted">Fat (g)</div>
+            <input id="prof-f" type="number" value="${s.fatTarget}" style="width:100%">
+          </div>
+        </div>
+      </div>
+
+      <button class="btn btn-primary" style="width:100%" onclick="saveProfileSettings()">Save Changes</button>
+    </div>
+  `;
+}
+
+function closeProfileSettings() { const el = document.getElementById('profile-modal'); if (el) el.remove(); }
+
+function saveProfileSettings() {
+  const s = STATE.settings;
+  s.name = document.getElementById('prof-name').value || 'Athlete';
+  s.heightCm = parseInt(document.getElementById('prof-height').value) || s.heightCm;
+  s.weightKg = parseFloat(document.getElementById('prof-weight').value) || s.weightKg;
+  s.calorieTarget = parseInt(document.getElementById('prof-cal').value) || s.calorieTarget;
+  s.proteinTarget = parseInt(document.getElementById('prof-p').value) || s.proteinTarget;
+  s.carbTarget = parseInt(document.getElementById('prof-c').value) || s.carbTarget;
+  s.fatTarget = parseInt(document.getElementById('prof-f').value) || s.fatTarget;
+  
+  save();
+  closeProfileSettings();
+  renderTab();
+}
 function onAIToggle(){
   const on=document.getElementById('ai-toggle').checked;
   document.getElementById('ai-toggle-track').style.background = on?'var(--accent)':'var(--border)';
@@ -962,12 +1040,17 @@ function renderHome() {
         <div class="fs-11 text-muted" style="letter-spacing:.5px;text-transform:uppercase">${new Date().toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'short'})}</div>
         <div style="font-size:22px;font-weight:800">${s.name}</div>
       </div>
-      <div style="background:var(--orange-lo);border:1px solid rgba(255,122,47,.3);border-radius:12px;padding:8px 14px;text-align:center;display:flex;align-items:center;gap:8px">
-        <span style="color:var(--orange)">${IC('flame',20)}</span>
-        <div style="text-align:left;line-height:1.05">
-          <div style="font-size:18px;font-weight:900;color:var(--orange)">${streak}</div>
-          <div style="font-size:9px;color:var(--orange);font-weight:700;letter-spacing:.5px">DAY${streak!==1?'S':''}</div>
+      <div class="row" style="gap:12px">
+        <div style="background:var(--orange-lo);border:1px solid rgba(255,122,47,.3);border-radius:12px;padding:8px 14px;text-align:center;display:flex;align-items:center;gap:8px">
+          <span style="color:var(--orange)">${IC('flame',20)}</span>
+          <div style="text-align:left;line-height:1.05">
+            <div style="font-size:18px;font-weight:900;color:var(--orange)">${streak}</div>
+            <div style="font-size:9px;color:var(--orange);font-weight:700;letter-spacing:.5px">DAY${streak!==1?'S':''}</div>
+          </div>
         </div>
+        <button onclick="openProfileSettings()" style="background:var(--surface);border:1px solid var(--border);border-radius:12px;width:44px;height:44px;display:flex;align-items:center;justify-content:center;color:var(--text-sub);cursor:pointer">
+          ${IC('gear', 20)}
+        </button>
       </div>
     </div>
 
