@@ -8,6 +8,7 @@
 <meta name="apple-mobile-web-app-title" content="FitForge">
 <meta name="theme-color" content="#0A0A0F">
 <link rel="manifest" href="manifest.json">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
@@ -260,7 +261,7 @@ function loadState() {
 function defaultState() {
   const today = TODAY();
   return {
-    settings: {name:'Athlete',weightKg:75,heightCm:175,goal:'cut',calorieTarget:2200,proteinTarget:160,carbTarget:220,fatTarget:70},
+    settings: {name:'Athlete',weightKg:75,heightCm:175,goal:'cut',calorieTarget:2200,proteinTarget:160,carbTarget:220,fatTarget:70,watchKey:''},
     workouts: [
       {id:'w1',date:'2026-06-08',duration:52,vol:2980,notes:'Felt strong',
        exercises:[
@@ -488,20 +489,86 @@ if(!AICFG.mode)  AICFG.mode  = 'auto';            // 'auto' = use Gemini when a 
 function geminiActive(){ return AICFG.mode!=='local' && !!(AICFG.key && AICFG.key.trim()); }
 
 // Compact snapshot of the user's data so Gemini answers are grounded in real numbers
+// ══════════════════════════════════════════════════════════════
+// METRICS ENGINE — local, deterministic sports-science algorithms.
+// These compute interpreted signals on-device; the AI reasons over
+// the OUTPUTS (not raw data). Pure functions, no side effects.
+// ══════════════════════════════════════════════════════════════
+function _avg(a){ return a.length ? a.reduce((x,y)=>x+y,0)/a.length : 0; }
+function _ema(arr,alpha){ let e=null; return arr.map(v=>{ e = e==null ? v : alpha*v+(1-alpha)*e; return e; }); }
+function _dayspan(a,b){ return Math.max(1,(new Date(b)-new Date(a))/86400000); }
+
+// Estimated 1-rep-max (Epley)
+function e1RM(w,r){ return (w>0&&r>0) ? Math.round(w*(1+r/30)) : 0; }
+// Per-lift best-e1RM history + stall detection (no progress in last 3 sessions)
+function liftStats(name){
+  const hist=STATE.workouts
+    .flatMap(wk=>wk.exercises.filter(e=>e.name===name).map(e=>({date:wk.date, e1rm:Math.max(0,...e.sets.map(s=>e1RM(s.w||0,s.r||0)))})))
+    .filter(x=>x.e1rm>0);
+  if(!hist.length) return null;
+  const cur=hist[hist.length-1].e1rm, last3=hist.slice(-3).map(h=>h.e1rm);
+  return { name, current:cur, change:cur-hist[0].e1rm, sessions:hist.length,
+           stalled: last3.length>=3 && Math.max(...last3)<=last3[0] };
+}
+// Weekly training volume (kg), most-recent first
+function weeklyLoads(weeks=5){
+  const now=Date.now(), out=[];
+  for(let i=0;i<weeks;i++){ const hi=now-i*6048e5, lo=now-(i+1)*6048e5;
+    out.push(STATE.workouts.filter(w=>{const t=new Date(w.date).getTime(); return t<hi&&t>=lo;}).reduce((a,w)=>a+(w.vol||0),0)); }
+  return out;
+}
+// Acute:Chronic Workload Ratio — injury-risk gauge (sweet spot ~0.8–1.3)
+function acwr(){
+  const wl=weeklyLoads(5), acute=wl[0], chronic=_avg(wl.slice(0,4));
+  if(!chronic) return null;
+  const ratio=acute/chronic;
+  return { acute:Math.round(acute), chronic:Math.round(chronic), ratio:+ratio.toFixed(2),
+           flag: ratio>1.5?'high':ratio<0.8?'detraining':'optimal' };
+}
+// Resting HR vs personal baseline (recovery/illness signal)
+function rhrStatus(){
+  const r=STATE.watch&&STATE.watch.rhr; if(!r||r.length<3) return null;
+  const cur=r[r.length-1].bpm, base=_avg(r.slice(-30,-1).map(x=>x.bpm))||_avg(r.map(x=>x.bpm));
+  return { current:cur, baseline:Math.round(base), delta:Math.round(cur-base) };
+}
+function sleepStatus(){
+  const sl=STATE.watch&&STATE.watch.sleep; if(!sl||!sl.length) return null;
+  return { lastMin:sl[sl.length-1].total, avg7Min:Math.round(_avg(sl.slice(-7).map(s=>s.total))) };
+}
+// Bodyweight: EMA-smoothed trend + true weekly rate (strips water noise)
+function weightTrend(){
+  const W=STATE.weight; if(!W||W.length<2) return null;
+  const kg=W.map(x=>x.kg), sm=_ema(kg,0.25);
+  return { trend:+sm[sm.length-1].toFixed(1),
+           ratePerWeek:+(((kg[kg.length-1]-kg[0])/_dayspan(W[0].date,W[W.length-1].date))*7).toFixed(2) };
+}
+// Adaptive TDEE — back-calculated from intake vs weight change (energy balance, 7700 kcal/kg)
+function tdeeEstimate(){
+  const days=STATE.nutrition.slice(-14); if(days.length<5) return null;
+  const wt=weightTrend(); if(!wt) return null;
+  const avgIntake=_avg(days.map(d=>getNutritionTotals(d).cal));
+  return { tdee:Math.round(avgIntake - wt.ratePerWeek*7700/7), avgIntake:Math.round(avgIntake) };
+}
+// Readiness 0–100 (transparent heuristic; gates train-hard vs recover)
+function readiness(){
+  let score=80; const factors=[];
+  const rs=rhrStatus(), sp=sleepStatus(), aw=acwr(), streak=getStreak();
+  if(rs){ if(rs.delta>=5){score-=20;factors.push(`resting HR +${rs.delta}bpm vs baseline`);} else if(rs.delta<=-2)score+=5; }
+  if(sp){ const h=sp.lastMin/60; if(h<6){score-=20;factors.push(`only ${h.toFixed(1)}h sleep`);} else if(h>=7.5)score+=5; }
+  if(aw&&aw.flag==='high'){ score-=15; factors.push(`load spiking (ACWR ${aw.ratio})`); }
+  if(streak>=6){ score-=10; factors.push(`${streak}-day streak — accumulated fatigue`); }
+  score=Math.max(5,Math.min(100,Math.round(score)));
+  return { score, band: score>=75?'Go hard':score>=50?'Moderate':'Recover', factors };
+}
+
+// Compact snapshot + DERIVED METRICS so Gemini reasons over interpreted signals
 function buildAIContext(){
-  const s=STATE.settings;
-  const freq=getMuscleFreq();
-  const rec=getRecommendation();
-  const streak=getStreak();
-  const recentW=STATE.workouts.slice(-6).map(w=>{
-    const muscles=[...new Set(w.exercises.map(e=>e.muscle))].join('/');
-    return `${w.date} ${muscles} — ${w.vol}kg vol, ${w.duration}min`;
-  });
-  const nut=STATE.nutrition.slice(-7).map(d=>{ const t=getNutritionTotals(d);
-    return `${d.date}: ${Math.round(t.cal)}kcal P${Math.round(t.p)} C${Math.round(t.c)} F${Math.round(t.f)}`; });
+  const s=STATE.settings, freq=getMuscleFreq(), rec=getRecommendation(), streak=getStreak();
+  const recentW=STATE.workouts.slice(-6).map(w=>`${w.date} ${[...new Set(w.exercises.map(e=>e.muscle))].join('/')} — ${w.vol}kg, ${w.duration}min`);
+  const nut=STATE.nutrition.slice(-7).map(d=>{ const t=getNutritionTotals(d); return `${d.date}: ${Math.round(t.cal)}kcal P${Math.round(t.p)} C${Math.round(t.c)} F${Math.round(t.f)}`; });
   const wt=STATE.weight.slice(-6).map(w=>`${w.date}: ${w.kg}kg`);
   const prs=['Bench Press','Back Squat','Deadlift','Overhead Press'].map(n=>`${n}: ${getPR(n)}kg`);
-  return [
+  const lines=[
     `USER: ${s.name}, ${s.weightKg}kg, ${s.heightCm}cm. Goal: ${s.goal}.`,
     `TARGETS: ${s.calorieTarget}kcal/day, protein ${s.proteinTarget}g, carbs ${s.carbTarget}g, fat ${s.fatTarget}g.`,
     `WORKOUT STREAK: ${streak} days.`,
@@ -512,21 +579,37 @@ function buildAIContext(){
     `BODYWEIGHT:\n${wt.join('\n')||'none'}`,
     `SUGGESTED NEXT SESSION: ${rec.group} (${rec.reason}).`
   ];
+  // Derived signals (the AI's edge)
+  const rd=readiness(), aw=acwr(), wtr=weightTrend(), td=tdeeEstimate(), rs=rhrStatus(), sp=sleepStatus();
+  const dm=[];
+  dm.push(`Readiness: ${rd.score}/100 (${rd.band})${rd.factors.length?' — '+rd.factors.join('; '):''}.`);
+  if(aw) dm.push(`Training load: this week ${aw.acute}kg vs 4-wk avg ${aw.chronic}kg, ACWR ${aw.ratio} (${aw.flag}).`);
+  if(wtr) dm.push(`Weight trend (smoothed): ${wtr.trend}kg, ${wtr.ratePerWeek>0?'+':''}${wtr.ratePerWeek}kg/week.`);
+  if(td) dm.push(`Est. maintenance (TDEE): ~${td.tdee}kcal/day (avg intake ${td.avgIntake}); target ${s.calorieTarget}.`);
+  if(rs) dm.push(`Resting HR: ${rs.current}bpm (baseline ${rs.baseline}, ${rs.delta>=0?'+':''}${rs.delta}).`);
+  if(sp) dm.push(`Sleep: last ${(sp.lastMin/60).toFixed(1)}h, 7d avg ${(sp.avg7Min/60).toFixed(1)}h.`);
+  const stalls=['Bench Press','Back Squat','Deadlift','Overhead Press'].map(liftStats).filter(x=>x&&x.stalled).map(x=>x.name);
+  if(stalls.length) dm.push(`Stalled lifts (no e1RM gain in 3 sessions): ${stalls.join(', ')}.`);
+  lines.push(`\n=== DERIVED METRICS (computed on-device — use these for judgment) ===\n${dm.join('\n')}`);
   if(STATE.watch){
-    const wd=STATE.watch;
-    const a=wd.activity.slice(-7), avgSteps=a.length?Math.round(a.reduce((x,d)=>x+d.steps,0)/a.length):0;
-    const rh=wd.rhr.slice(-7), avgRHR=rh.length?Math.round(rh.reduce((x,d)=>x+d.bpm,0)/rh.length):0;
-    const sl=wd.sleep.slice(-7), avgSleep=sl.length?Math.round(sl.reduce((x,d)=>x+d.total,0)/sl.length):0;
-    lines.push(`WATCH (Amazfit, last 7d): avg ${avgSteps} steps/day, avg resting HR ${avgRHR} bpm, avg sleep ${Math.floor(avgSleep/60)}h${avgSleep%60}m, ${wd.sport.length} cardio sessions logged.`);
+    const wd=STATE.watch, a=wd.activity.slice(-7);
+    lines.push(`WATCH (last 7d): avg ${a.length?Math.round(_avg(a.map(d=>d.steps))):0} steps/day, ${wd.sport.length} cardio sessions.`);
   }
   return lines.join('\n');
 }
 
 const AI_SYSTEM_PROMPT =
   "You are FitForge AI Coach, a sharp, encouraging strength & nutrition coach inside a fitness app. " +
-  "Answer using the USER DATA below — cite their real numbers, trends and PRs. Be concise and practical " +
+  "Answer using the USER DATA below — cite their real numbers, trends, PRs and the DERIVED METRICS. Be concise and practical " +
   "(a few short paragraphs or bullets max). Use **bold** for emphasis and emojis sparingly. Give specific, " +
   "actionable advice. If data is missing, say so briefly. Never invent numbers that aren't in the data.\n\n" +
+  "SAFETY GUARDRAILS (non-negotiable):\n" +
+  "1. You are NOT a doctor. Never diagnose, never give medical advice, never interpret symptoms. If the user mentions chest pain, dizziness, injury, fainting, or other medical concerns, tell them to stop and consult a medical professional — do not advise training.\n" +
+  "2. Respect Readiness: if Readiness < 50 or band is 'Recover', do NOT tell them to push hard — recommend lighter work, mobility, or rest. Only encourage intensity when readiness and recovery markers support it.\n" +
+  "3. If resting HR is elevated >5bpm vs baseline OR sleep <6h, flag under-recovery and advise caution, regardless of streak.\n" +
+  "4. If ACWR flag is 'high', warn about injury risk from the load spike and suggest a lighter week.\n" +
+  "5. Never recommend extreme calorie deficits (<1200kcal) or aggressive weekly weight change (>1% bodyweight/week).\n" +
+  "6. Keep one short line at the end only when giving training/diet prescriptions: 'Not medical advice.'\n\n" +
   "=== USER DATA ===\n";
 
 async function askGemini(question){
@@ -809,6 +892,12 @@ function openProfileSettings() {
         </div>
       </div>
 
+      <div class="section-label">Watch Connection</div>
+      <div class="card" style="margin-bottom:12px">
+        <div class="fs-11 text-muted">Amazfit 32-Char Auth Key</div>
+        <input id="prof-watchkey" type="password" placeholder="Paste your watch auth key..." value="${s.watchKey||''}" style="width:100%">
+      </div>
+
       <button class="btn btn-primary" style="width:100%" onclick="saveProfileSettings()">Save Changes</button>
     </div>
   `;
@@ -825,6 +914,7 @@ function saveProfileSettings() {
   s.proteinTarget = parseInt(document.getElementById('prof-p').value) || s.proteinTarget;
   s.carbTarget = parseInt(document.getElementById('prof-c').value) || s.carbTarget;
   s.fatTarget = parseInt(document.getElementById('prof-f').value) || s.fatTarget;
+  s.watchKey = document.getElementById('prof-watchkey').value || '';
   
   save();
   closeProfileSettings();
@@ -1053,6 +1143,24 @@ function renderHome() {
         </button>
       </div>
     </div>
+
+    <!-- Readiness (derived metric hero) -->
+    ${(()=>{ const r=readiness(); const c=r.score>=75?'var(--green)':r.score>=50?'var(--yellow)':'var(--red)';
+      const aw=acwr();
+      return `<div class="card" style="margin-bottom:10px;border:1px solid ${c}55">
+        <div class="row between" style="align-items:center">
+          <div class="ring-wrap" style="width:74px;height:74px;flex-shrink:0">
+            ${ring(r.score,100,74,8,c)}
+            <div class="ring-center"><div style="font-size:20px;font-weight:900;color:${c}">${r.score}</div></div>
+          </div>
+          <div style="flex:1;padding-left:14px">
+            <div class="section-label" style="margin-bottom:2px">READINESS</div>
+            <div style="font-size:16px;font-weight:800;color:${c}">${r.band}</div>
+            <div class="fs-11 text-muted" style="margin-top:3px;line-height:1.4">${r.factors.length?r.factors.slice(0,2).join(' · '):'All recovery markers look good'}</div>
+            ${aw?`<div class="fs-11 ${aw.flag==='high'?'text-orange':'text-dim'}" style="margin-top:3px">Load ACWR ${aw.ratio} · ${aw.flag}</div>`:''}
+          </div>
+        </div>
+      </div>`; })()}
 
     <!-- Calorie card -->
     <div class="card" style="margin-bottom:10px">
@@ -2119,6 +2227,98 @@ async function syncBleScale() {
   }
 }
 
+async function syncWatchBle() {
+  if (!window.Capacitor) { alert("Bluetooth is only available in the Android app."); return; }
+  const Ble = Capacitor.Plugins.BluetoothLe;
+  const s = STATE.settings;
+  if (!s.watchKey || s.watchKey.length !== 32) {
+    alert("Please set your 32-char Watch Auth Key in Profile Settings first.");
+    showTab('home'); openProfileSettings(); return;
+  }
+
+  const btn = event.currentTarget;
+  const oldText = btn.innerText;
+  btn.innerText = 'Connecting...';
+  btn.disabled = true;
+
+  const SERVICE_FEE0 = '0000fee0-0000-1000-8000-00805f9b34fb';
+  const CHAR_AUTH    = '00000009-0000-3512-2118-0009af100700';
+  const SERVICE_HR   = '0000180d-0000-1000-8000-00805f9b34fb';
+  const CHAR_HR_MEAS = '00002a37-0000-1000-8000-00805f9b34fb';
+
+  let devId;
+  const clean = () => { btn.innerText = oldText; btn.disabled = false; };
+
+  try {
+    await Ble.initialize();
+    const device = await Ble.requestDevice({ services: [SERVICE_FEE0] });
+    if (!device || !device.deviceId) { clean(); return; }
+    devId = device.deviceId;
+
+    await Ble.connect({ deviceId: devId });
+    btn.innerText = 'Authenticating...';
+
+    // Huami Auth Handshake
+    const keyBytes = CryptoJS.enc.Hex.parse(s.watchKey);
+    
+    await Ble.startNotifications({ deviceId: devId, service: SERVICE_FEE0, characteristic: CHAR_AUTH });
+    
+    return new Promise(async (resolve, reject) => {
+      const authListener = await Ble.addListener(`notification|${devId}|${SERVICE_FEE0}|${CHAR_AUTH}`, async (ev) => {
+        const data = Array.from(new Uint8Array(typeof ev.value === 'string' ? CryptoJS.enc.Hex.parse(ev.value).words.flatMap(w => [w>>24&255, w>>16&255, w>>8&255, w&255]) : ev.value.buffer));
+        
+        if (data[0] === 0x10 && data[1] === 0x01 && data[2] === 0x01) {
+          // Received random number, encrypt it
+          const random = data.slice(3, 19);
+          const encrypted = CryptoJS.AES.encrypt(CryptoJS.lib.WordArray.create(new Uint8Array(random)), keyBytes, {
+            mode: CryptoJS.mode.ECB, padding: CryptoJS.pad.NoPadding
+          }).ciphertext;
+          
+          const resp = new Uint8Array([0x03, 0x08, ...new Uint8Array(encrypted.words.flatMap(w => [w>>24&255, w>>16&255, w>>8&255, w&255]))]);
+          await Ble.write({ deviceId: devId, service: SERVICE_FEE0, characteristic: CHAR_AUTH, value: CryptoJS.enc.Hex.stringify(CryptoJS.lib.WordArray.create(resp)) });
+        } 
+        else if (data[0] === 0x10 && data[1] === 0x03 && data[2] === 0x01) {
+          // Auth Success
+          authListener.remove();
+          btn.innerText = 'Live: -- bpm';
+          
+          // Subscribe to Heart Rate
+          const hrListener = await Ble.addListener(`notification|${devId}|${SERVICE_HR}|${CHAR_HR_MEAS}`, (hrEv) => {
+            const hrData = new Uint8Array(typeof hrEv.value === 'string' ? CryptoJS.enc.Hex.parse(hrEv.value).words.flatMap(w => [w>>24&255, w>>16&255, w>>8&255, w&255]) : hrEv.value.buffer);
+            const bpm = hrData[1];
+            btn.innerText = `Live: ${bpm} bpm`;
+            
+            // Record if stable (simulated logic)
+            const today = TODAY();
+            if (!STATE.watch) STATE.watch = { activity:[], sleep:[], sport:[], rhr:[] };
+            const idx = STATE.watch.rhr.findIndex(r => r.date === today);
+            if (idx >= 0) STATE.watch.rhr[idx].bpm = Math.round((STATE.watch.rhr[idx].bpm + bpm)/2);
+            else STATE.watch.rhr.push({ date: today, bpm: bpm });
+            save();
+          });
+          
+          await Ble.startNotifications({ deviceId: devId, service: SERVICE_HR, characteristic: CHAR_HR_MEAS });
+          
+          // Also trigger a "Sync Now" in background for steps/sleep
+          setTimeout(() => syncHealthConnect(), 1000);
+        }
+        else if (data[0] === 0x10 && data[1] === 0x01 && data[2] === 0x04) {
+          reject(new Error("Auth failed. Check your Auth Key."));
+        }
+      });
+
+      // Start auth: send 0x01 0x08
+      const reqAuth = new Uint8Array([0x01, 0x08]);
+      await Ble.write({ deviceId: devId, service: SERVICE_FEE0, characteristic: CHAR_AUTH, value: '0108' });
+    });
+
+  } catch (err) {
+    console.error(err);
+    alert("Watch Error: " + err.message);
+    clean();
+  }
+}
+
 async function syncHealthConnect() {
   if (!window.Capacitor) {
     alert("Health Connect is only available in the Android app.");
@@ -2142,7 +2342,7 @@ async function syncHealthConnect() {
       return;
     }
 
-    const types = ['Steps', 'ActiveCaloriesBurned', 'HeartRateSeries', 'RestingHeartRate', 'Weight', 'BodyFat', 'SleepSession', 'ExerciseSession'];
+    const types = ['Steps', 'ActiveCaloriesBurned', 'HeartRateSeries', 'RestingHeartRate', 'Weight', 'BodyFat'];
     const permStatus = await HealthConnect.checkHealthPermissions({ read: types, write: [] });
     
     if (!permStatus.hasAllPermissions) {
@@ -2198,33 +2398,10 @@ async function syncHealthConnect() {
       bodyMap[d].bf = Math.round(r.percentage.value * 10) / 10;
     });
 
-    // Sleep
-    const sleepData = await HealthConnect.readRecords({ type: 'SleepSession', timeRangeFilter });
-    const sleepMap = {};
-    sleepData.records.forEach(r => {
-      const d = new Date(r.startTime).toISOString().split('T')[0];
-      const start = new Date(r.startTime);
-      const end = new Date(r.endTime);
-      const total = Math.round((end - start) / (1000 * 60));
-      sleepMap[d] = sleepMap[d] || { date: d, total: 0, deep: 0, light: 0, rem: 0 };
-      sleepMap[d].total += total;
-    });
-    const sleep = Object.values(sleepMap).sort((a,b) => a.date.localeCompare(b.date));
-
-    // Sport / Exercise
-    const exerciseData = await HealthConnect.readRecords({ type: 'ExerciseSession', timeRangeFilter });
-    const sport = exerciseData.records.map(r => {
-      const start = new Date(r.startTime);
-      const end = new Date(r.endTime);
-      return {
-        type: 0,
-        name: r.title || r.exerciseType || 'Workout',
-        date: r.startTime.split('T')[0],
-        durSec: Math.round((end - start) / 1000),
-        distM: 0,
-        cal: 0
-      };
-    });
+    // NOTE: this Health Connect plugin (v0.7.0) does NOT support SleepSession or ExerciseSession
+    // record types — requesting them crashes the plugin. Sleep & cardio come via the manual Zepp import instead.
+    const sleep = [];
+    const sport = [];
 
     // Merge into STATE
     if (!STATE.watch) STATE.watch = { activity:[], sleep:[], sport:[], rhr:[] };
