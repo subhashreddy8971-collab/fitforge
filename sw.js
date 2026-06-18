@@ -1,4 +1,4 @@
-const CACHE = 'fitforge-v10';
+const CACHE = 'fitforge-v11';
 const ASSETS = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
 self.addEventListener('install', e => { self.skipWaiting(); e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS))); });
 self.addEventListener('activate', e => e.waitUntil(
