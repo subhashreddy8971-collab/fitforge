@@ -1947,13 +1947,20 @@ const SCALE_CHAR    = '0000fff1-0000-1000-8000-00805f9b34fb';
 
 async function syncBleScale() {
   if (!window.Capacitor) { alert("Bluetooth is only available in the Android app."); return; }
-  const Ble = Capacitor.Plugins.BleClient;
+  const Ble = Capacitor.Plugins.BluetoothLe;
   if (!Ble) { alert("Bluetooth plugin not found."); return; }
 
   const btn = event.currentTarget;
   const oldText = btn.innerText;
   btn.innerText = 'Scanning...';
   btn.disabled = true;
+
+  let notifyListener, discListener, devId;
+  const clean = () => {
+    btn.innerText = oldText; btn.disabled = false;
+    if (notifyListener) notifyListener.remove();
+    if (discListener) discListener.remove();
+  };
 
   try {
     await Ble.initialize();
@@ -1964,29 +1971,40 @@ async function syncBleScale() {
       optionalServices: [SCALE_SERVICE]
     });
 
-    if (!device) return;
-    btn.innerText = 'Connecting...';
+    if (!device || !device.deviceId) { clean(); return; }
+    devId = device.deviceId;
     
-    await Ble.connect(device.deviceId, (id) => {
-      console.log('Disconnected', id);
-      btn.innerText = oldText;
-      btn.disabled = false;
+    // Listen for disconnect using the plugin's native event pattern
+    discListener = await Ble.addListener(`disconnected|${devId}`, () => { 
+      console.log('BLE Disconnected'); 
+      clean(); 
     });
+
+    btn.innerText = 'Connecting...';
+    await Ble.connect({ deviceId: devId });
 
     btn.innerText = 'Step on Scale';
 
-    await Ble.startNotifications(device.deviceId, SCALE_SERVICE, SCALE_CHAR, (value) => {
-      // Fitdays/Icomon protocol: 19-20 bytes. Weight at byte 9-10.
-      const data = new Uint8Array(value.buffer);
+    // Listen for notifications using the plugin's native event pattern
+    notifyListener = await Ble.addListener(`notification|${devId}|${SCALE_SERVICE}|${SCALE_CHAR}`, (ev) => {
+      if (!ev || !ev.value) return;
+      
+      let data;
+      if (typeof ev.value === 'string') { // Android native returns hex string
+        data = new Uint8Array(ev.value.length / 2);
+        for (let i = 0; i < ev.value.length; i += 2) {
+          data[i / 2] = parseInt(ev.value.substr(i, 2), 16);
+        }
+      } else { // Web or other platforms might return DataView
+        data = new Uint8Array(ev.value.buffer || ev.value);
+      }
+
       if (data.length < 11) return;
 
       const isStable = data[5] === 0x03;
       const weightRaw = (data[9] << 8) | data[10];
       const weightKg = Math.round((weightRaw / 100) * 10) / 10;
       
-      // Impedance at byte 11-12 (optional, used for BF% calculation in app)
-      const impedance = (data[11] << 8) | data[12];
-
       btn.innerText = `Weight: ${weightKg}kg` + (isStable ? ' (Stable)' : '');
 
       if (isStable && weightKg > 20) {
@@ -2001,18 +2019,20 @@ async function syncBleScale() {
         
         // Vibrate and disconnect
         if (navigator.vibrate) navigator.vibrate(200);
-        Ble.stopNotifications(device.deviceId, SCALE_SERVICE, SCALE_CHAR);
-        Ble.disconnect(device.deviceId);
+        Ble.stopNotifications({ deviceId: devId, service: SCALE_SERVICE, characteristic: SCALE_CHAR });
+        Ble.disconnect({ deviceId: devId });
         alert(`Recorded: ${weightKg}kg`);
         showTab('files');
+        clean();
       }
     });
+
+    await Ble.startNotifications({ deviceId: devId, service: SCALE_SERVICE, characteristic: SCALE_CHAR });
 
   } catch (err) {
     console.error(err);
     alert("Bluetooth error: " + err.message);
-  } finally {
-    // We don't reset btn here because notifications are async
+    clean();
   }
 }
 
